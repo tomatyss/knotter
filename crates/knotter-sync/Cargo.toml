@@ -1,0 +1,8 @@
+[package]
+name = "knotter-sync"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+knotter-core = { path = "../knotter-core" }
+thiserror = "1"

@@ -1,0 +1,11 @@
+[package]
+name = "knotter-store"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+knotter-core = { path = "../knotter-core" }
+dirs = "5"
+chrono = "0.4"
+rusqlite = { version = "0.31", features = ["bundled"] }
+thiserror = "1"

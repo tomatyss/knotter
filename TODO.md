@@ -41,53 +41,53 @@ knotter is “MVP done” when all are true:
 ## 1) Milestone A — Workspace scaffolding + engineering baseline
 
 ### A1. Create workspace layout
-- [ ] Create Cargo workspace root
-- [ ] Create crates under `crates/`:
-  - [ ] `knotter-core`
-  - [ ] `knotter-store`
-  - [ ] `knotter-sync`
-  - [ ] `knotter-cli`
-  - [ ] `knotter-tui`
+- [x] Create Cargo workspace root
+- [x] Create crates under `crates/`:
+  - [x] `knotter-core`
+  - [x] `knotter-store`
+  - [x] `knotter-sync`
+  - [x] `knotter-cli`
+  - [x] `knotter-tui`
   - [ ] (optional) `knotter` umbrella binary crate
-- [ ] Ensure dependency direction matches architecture:
-  - [ ] `knotter-core` has no DB, no IO, no terminal deps
-  - [ ] `knotter-store` depends on core
-  - [ ] `knotter-sync` depends on core (optionally store for upserts)
-  - [ ] CLI/TUI depend on core/store/sync, never the reverse
+- [x] Ensure dependency direction matches architecture:
+  - [x] `knotter-core` has no DB, no IO, no terminal deps
+  - [x] `knotter-store` depends on core
+  - [x] `knotter-sync` depends on core (optionally store for upserts)
+  - [x] CLI/TUI depend on core/store/sync, never the reverse
 
 ### A2. Decide baseline crates and features (commit early)
-- [ ] Pick datetime crate strategy (and stick to it):
-  - [ ] timestamps stored as `i64` unix seconds UTC in DB
-  - [ ] conversions at edges
-- [ ] Pick DB crate strategy:
-  - [ ] recommended MVP: `rusqlite` with bundled sqlite option enabled
-- [ ] Pick CLI argument parsing crate (recommended: `clap`)
-- [ ] Pick error crates:
-  - [ ] `thiserror` in core/store/sync
-  - [ ] `anyhow` at CLI/TUI top level (optional but convenient)
-- [ ] Pick serialization crate for JSON output:
-  - [ ] `serde` + `serde_json`
-- [ ] Pick TUI crates:
-  - [ ] Ratatui + Crossterm
+- [x] Pick datetime crate strategy (and stick to it):
+  - [x] timestamps stored as `i64` unix seconds UTC in DB
+  - [x] conversions at edges
+- [x] Pick DB crate strategy:
+  - [x] recommended MVP: `rusqlite` with bundled sqlite option enabled
+- [x] Pick CLI argument parsing crate (recommended: `clap`)
+- [x] Pick error crates:
+  - [x] `thiserror` in core/store/sync
+  - [x] `anyhow` at CLI/TUI top level (optional but convenient)
+- [x] Pick serialization crate for JSON output:
+  - [x] `serde` + `serde_json`
+- [x] Pick TUI crates:
+  - [x] Ratatui + Crossterm
 - [ ] Create feature flags:
   - [ ] `desktop-notify` (enables desktop notification backend)
   - [ ] `dav-sync` (future)
 
 ### A3. Tooling and CI
-- [ ] Add `rustfmt` config (or use default) + enforce `cargo fmt --check`
-- [ ] Enable clippy in CI with warnings denied
-- [ ] Add CI workflow:
-  - [ ] build
-  - [ ] fmt check
-  - [ ] clippy
-  - [ ] test
-- [ ] Add `.editorconfig`
-- [ ] Add `LICENSE`
-- [ ] Add `README.md` (minimal)
-  - [ ] what knotter is
-  - [ ] quickstart
-  - [ ] where data is stored (XDG)
-- [ ] Add `docs/` directory and commit `docs/ARCHITECTURE.md` (already produced)
+- [x] Add `rustfmt` config (or use default) + enforce `cargo fmt --check`
+- [x] Enable clippy in CI with warnings denied
+- [x] Add CI workflow:
+  - [x] build
+  - [x] fmt check
+  - [x] clippy
+  - [x] test
+- [x] Add `.editorconfig`
+- [x] Add `LICENSE`
+- [x] Add `README.md` (minimal)
+  - [x] what knotter is
+  - [x] quickstart
+  - [x] where data is stored (XDG)
+- [x] Add `docs/` directory and commit `docs/ARCHITECTURE.md`
 
 **DoD (Milestone A)**  
 Workspace builds and tests run in CI; docs folder exists; dependency direction is clean.
@@ -97,76 +97,76 @@ Workspace builds and tests run in CI; docs folder exists; dependency direction i
 ## 2) Milestone B — Domain model + business rules (knotter-core)
 
 ### B1. Module layout in `knotter-core`
-- [ ] `src/lib.rs` exports the public API
-- [ ] `src/domain/`:
-  - [ ] `contact.rs`
-  - [ ] `interaction.rs`
-  - [ ] `tag.rs`
-  - [ ] `ids.rs` (newtypes)
-- [ ] `src/rules/`:
-  - [ ] `due.rs` (due state computation)
-  - [ ] `cadence.rs` (schedule helpers)
-- [ ] `src/filter/`:
-  - [ ] `ast.rs`
-  - [ ] `parser.rs`
-  - [ ] `mod.rs`
-- [ ] `src/error.rs`
+- [x] `src/lib.rs` exports the public API
+- [x] `src/domain/`:
+  - [x] `contact.rs`
+  - [x] `interaction.rs`
+  - [x] `tag.rs`
+  - [x] `ids.rs` (newtypes)
+- [x] `src/rules/`:
+  - [x] `due.rs` (due state computation)
+  - [x] `cadence.rs` (schedule helpers)
+- [x] `src/filter/`:
+  - [x] `ast.rs`
+  - [x] `parser.rs`
+  - [x] `mod.rs`
+- [x] `src/error.rs`
 
 ### B2. IDs + invariants
-- [ ] Implement ID newtypes:
-  - [ ] `ContactId`
-  - [ ] `InteractionId`
-  - [ ] `TagId`
-- [ ] Ensure IDs serialize cleanly to/from strings (for DB + export)
-- [ ] Add constructors/helpers to prevent “raw uuid string everywhere”
+- [x] Implement ID newtypes:
+  - [x] `ContactId`
+  - [x] `InteractionId`
+  - [x] `TagId`
+- [x] Ensure IDs serialize cleanly to/from strings (for DB + export)
+- [x] Add constructors/helpers to prevent “raw uuid string everywhere”
 
 ### B3. Define domain structs
-- [ ] Implement `Contact`:
-  - [ ] required: `display_name`
-  - [ ] optional: email, phone, handle, timezone
-  - [ ] scheduling: `next_touchpoint_at: Option<i64>`, `cadence_days: Option<i32>`
-  - [ ] timestamps: `created_at`, `updated_at`
-  - [ ] optional `archived_at` (can be later; decide now if included in schema)
-- [ ] Implement `Interaction`:
-  - [ ] `occurred_at`, `created_at`
-  - [ ] `InteractionKind` enum (`Call`, `Text`, `Hangout`, `Email`, `Other(String)`)
-  - [ ] `follow_up_at: Option<i64>`
-- [ ] Implement `Tag`:
-  - [ ] `name` normalization rules (single shared function)
+- [x] Implement `Contact`:
+  - [x] required: `display_name`
+  - [x] optional: email, phone, handle, timezone
+  - [x] scheduling: `next_touchpoint_at: Option<i64>`, `cadence_days: Option<i32>`
+  - [x] timestamps: `created_at`, `updated_at`
+  - [x] optional `archived_at` (included in schema; UI support can be post-MVP)
+- [x] Implement `Interaction`:
+  - [x] `occurred_at`, `created_at`
+  - [x] `InteractionKind` enum (`Call`, `Text`, `Hangout`, `Email`, `Other(String)`)
+  - [x] `follow_up_at: Option<i64>`
+- [x] Implement `Tag`:
+  - [x] `name` normalization rules (single shared function; spaces -> `-`)
 
 ### B4. Core rules
-- [ ] Implement due logic:
-  - [ ] `DueState::{Unscheduled, Overdue, Today, Soon, Scheduled}`
-  - [ ] compute from `(now_utc, next_touchpoint_at, soon_days, local_timezone)`
-- [ ] Implement cadence helper:
-  - [ ] `schedule_next(now_utc, cadence_days) -> i64`
-- [ ] Implement “touch” helper logic (core-level behavior only):
-  - [ ] if reschedule requested and cadence set => update next_touchpoint_at to now + cadence
-  - [ ] otherwise leave next_touchpoint_at unchanged
+- [x] Implement due logic:
+  - [x] `DueState::{Unscheduled, Overdue, Today, Soon, Scheduled}`
+  - [x] compute from `(now_utc, next_touchpoint_at, soon_days, local_timezone)`
+- [x] Implement cadence helper:
+  - [x] `schedule_next(now_utc, cadence_days) -> i64`
+- [x] Implement “touch” helper logic (core-level behavior only):
+  - [x] if reschedule requested and cadence set => update next_touchpoint_at to now + cadence
+  - [x] otherwise leave next_touchpoint_at unchanged
 
 ### B5. Filter language spec + parser
-- [ ] Write `docs/filter-language.md` (or keep in architecture; either is fine)
-- [ ] Implement AST:
-  - [ ] text tokens
-  - [ ] tags `#tag`
-  - [ ] due tokens `due:overdue|today|soon|any|none`
-  - [ ] AND semantics across tokens
-- [ ] Parser requirements:
-  - [ ] tokenize by whitespace
-  - [ ] invalid `due:` value => parse error
-  - [ ] empty tag `#` => parse error
-  - [ ] normalize tags via shared function
-- [ ] Add unit tests:
-  - [ ] happy paths (single tag, multiple tags, due filters)
-  - [ ] invalid tokens
-  - [ ] normalization behavior
+- [x] Keep filter language spec in `docs/ARCHITECTURE.md` (no separate doc for MVP)
+- [x] Implement AST:
+  - [x] text tokens
+  - [x] tags `#tag`
+  - [x] due tokens `due:overdue|today|soon|any|none`
+  - [x] AND semantics across tokens
+- [x] Parser requirements:
+  - [x] tokenize by whitespace
+  - [x] invalid `due:` value => parse error
+  - [x] empty tag `#` => parse error
+  - [x] normalize tags via shared function
+- [x] Add unit tests:
+  - [x] happy paths (single tag, multiple tags, due filters)
+  - [x] invalid tokens
+  - [x] normalization behavior
 
 ### B6. Core JSON types (for CLI output)
-- [ ] Define lightweight, stable JSON structs (DTOs), separate from domain if needed
-- [ ] Ensure you can output:
-  - [ ] `ContactListItemDto`
-  - [ ] `ContactDetailDto`
-  - [ ] `ReminderOutputDto`
+- [x] Define lightweight, stable JSON structs (DTOs), separate from domain if needed
+- [x] Ensure you can output:
+  - [x] `ContactListItemDto`
+  - [x] `ContactDetailDto`
+  - [x] `ReminderOutputDto`
 
 **DoD (Milestone B)**  
 Core compiles standalone; due logic + parser are tested; invariants enforced consistently.
@@ -176,92 +176,93 @@ Core compiles standalone; due logic + parser are tested; invariants enforced con
 ## 3) Milestone C — SQLite store + migrations (knotter-store)
 
 ### C1. XDG paths and DB opening
-- [ ] Implement `paths` module:
-  - [ ] XDG data dir resolution
-  - [ ] create `.../knotter/` directory if missing
-  - [ ] DB path: `knotter.sqlite3`
-- [ ] Create DB open function:
-  - [ ] open connection
-  - [ ] set pragmas:
-    - [ ] `foreign_keys = ON`
-    - [ ] `journal_mode = WAL`
-    - [ ] `synchronous = NORMAL`
-    - [ ] `busy_timeout = 2000` (or config)
+- [x] Implement `paths` module:
+  - [x] XDG data dir resolution
+  - [x] create `.../knotter/` directory if missing
+  - [x] DB path: `knotter.sqlite3`
+- [x] Create DB open function:
+  - [x] open connection
+  - [x] set pragmas:
+    - [x] `foreign_keys = ON`
+    - [x] `journal_mode = WAL`
+    - [x] `synchronous = NORMAL`
+    - [x] `busy_timeout = 2000` (or config)
 - [ ] Ensure file permissions are user-restricted where possible (document OS limitations)
 
 ### C2. Migrations framework
-- [ ] Create `migrations/` directory in `knotter-store`
-- [ ] Implement migration runner:
-  - [ ] schema version table `knotter_schema(version)`
-  - [ ] apply migrations in order inside a transaction
-  - [ ] set version
-  - [ ] handle “fresh DB” and “already migrated” cases
-- [ ] Create `001_init.sql` matching architecture doc schema
+- [x] Create `migrations/` directory in `knotter-store`
+- [x] Treat `docs/DB_SCHEMA.md` as the authoritative schema reference (keep architecture summary in sync)
+- [x] Implement migration runner:
+  - [x] schema version table `knotter_schema(version)`
+  - [x] apply migrations in order inside a transaction
+  - [x] set version
+  - [x] handle “fresh DB” and “already migrated” cases
+- [x] Create `001_init.sql` matching architecture doc schema
 
 ### C3. Repositories and API surface
 Implement repositories (traits or concrete structs). Keep SQL internal.
 
 #### Contacts
-- [ ] `create_contact`:
-  - [ ] validate name non-empty
-  - [ ] set created/updated timestamps
-- [ ] `update_contact`:
-  - [ ] update `updated_at`
-- [ ] `get_contact`
-- [ ] `delete_contact` (hard delete MVP)
+- [x] `create_contact`:
+  - [x] validate name non-empty
+  - [x] set created/updated timestamps
+- [x] `update_contact`:
+  - [x] update `updated_at`
+- [x] `get_contact`
+- [x] `delete_contact` (hard delete MVP)
 - [ ] `archive_contact` (optional; if included, add CLI/TUI support later)
-- [ ] `list_contacts(query)`:
-  - [ ] supports text filters (name/email/phone/handle)
-  - [ ] supports tag filters via EXISTS
-  - [ ] supports due filters by comparing `next_touchpoint_at` to computed boundaries
-  - [ ] stable ordering:
-    - [ ] due first (overdue, today, soon), then scheduled, then unscheduled
-    - [ ] within same bucket sort by display_name
+- [x] `list_contacts(query)`:
+  - [x] supports text filters (name/email/phone/handle)
+  - [x] supports tag filters via EXISTS
+  - [x] supports due filters by comparing `next_touchpoint_at` to computed boundaries
+  - [x] stable ordering:
+    - [x] due first (overdue, today, soon), then scheduled, then unscheduled
+    - [x] within same bucket sort by display_name
 
 #### Tags
-- [ ] `upsert_tag`:
-  - [ ] normalize name
-  - [ ] unique constraint ensures dedupe
-- [ ] `list_tags_with_counts`
-- [ ] `list_tags_for_contact`
-- [ ] `add_tag_to_contact`
-- [ ] `remove_tag_from_contact`
-- [ ] `set_contact_tags` (replace entire tag set; simplifies TUI tag editor)
+- [x] `upsert_tag`:
+  - [x] normalize name
+  - [x] unique constraint ensures dedupe
+- [x] `list_tags_with_counts`
+- [x] `list_tags_for_contact`
+- [x] `add_tag_to_contact`
+- [x] `remove_tag_from_contact`
+- [x] `set_contact_tags` (replace entire tag set; simplifies TUI tag editor)
 
 #### Interactions
-- [ ] `add_interaction`
-- [ ] `list_interactions(contact_id, limit, offset)`
+- [x] `add_interaction`
+- [x] `list_interactions(contact_id, limit, offset)`
 - [ ] `delete_interaction` (optional MVP)
 - [ ] `touch_contact` helper:
   - [ ] inserts a minimal interaction
   - [ ] optionally reschedules next_touchpoint_at (when requested + cadence exists)
 
 ### C4. SQL query compilation from filter AST
-- [ ] Implement `ContactQuery` compilation:
-  - [ ] convert filter tokens into WHERE clauses + bound params
-  - [ ] all params must be bound, never interpolated
-- [ ] For due filters:
-  - [ ] compute boundaries in Rust:
-    - [ ] start of today local (UTC timestamp)
-    - [ ] start of tomorrow local (UTC timestamp)
-    - [ ] soon window end timestamp
-  - [ ] translate to range queries on `next_touchpoint_at`
+- [x] Implement `ContactQuery` compilation:
+  - [x] convert filter tokens into WHERE clauses + bound params
+  - [x] all params must be bound, never interpolated
+- [x] For due filters:
+  - [x] compute boundaries in Rust:
+    - [x] start of today local (UTC timestamp)
+    - [x] start of tomorrow local (UTC timestamp)
+    - [x] soon window end timestamp
+  - [x] translate to range queries on `next_touchpoint_at`
 
 ### C5. Store tests (must-have)
-- [ ] Migration tests:
-  - [ ] new DB applies all migrations cleanly
-  - [ ] re-running doesn’t break
-- [ ] CRUD tests:
-  - [ ] create/update/get/delete contact
-- [ ] Tag tests:
-  - [ ] normalization is applied
-  - [ ] attach/detach
-  - [ ] counts correct
+- [x] Migration tests:
+  - [x] new DB applies all migrations cleanly
+  - [x] re-running doesn’t break
+- [x] CRUD tests:
+  - [x] create/update/get/delete contact
+- [x] Tag tests:
+  - [x] normalization is applied
+  - [x] attach/detach
+  - [x] counts correct
 - [ ] Filter tests:
-  - [ ] tag AND logic correct
-  - [ ] due filters correct (overdue/today/soon/none)
+  - [x] tag AND logic correct
+  - [x] due filters correct (overdue/today/soon/none)
 - [ ] Interaction tests:
-  - [ ] add/list order by occurred_at desc
+  - [x] add/list order by occurred_at desc
   - [ ] touch creates interaction and optional reschedule behavior works
 
 **DoD (Milestone C)**  
@@ -442,7 +443,7 @@ Modals:
   - [ ] quick options (today+7, today+30) (optional)
 
 ### E5. TUI docs + smoke checks
-- [ ] Write `docs/KEYBINDINGS.md`
+- [x] Write `docs/KEYBINDINGS.md`
 - [ ] Manual smoke check checklist doc:
   - [ ] open TUI
   - [ ] add contact
@@ -647,4 +648,3 @@ Portability:
 - Use bound parameters for all SQL.
 - Stable ICS UID is mandatory for non-annoying calendar behavior.
 - Prefer shipping MVP over expanding scope into “full sync” too early.
-

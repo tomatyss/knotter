@@ -1,0 +1,9 @@
+[workspace]
+members = [
+  "crates/knotter-core",
+  "crates/knotter-store",
+  "crates/knotter-sync",
+  "crates/knotter-cli",
+  "crates/knotter-tui",
+]
+resolver = "2"

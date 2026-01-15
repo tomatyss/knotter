@@ -160,7 +160,7 @@ Core fields:
 - `updated_at: i64` (unix seconds UTC)
 - `next_touchpoint_at: Option<i64>` (unix seconds UTC)
 - `cadence_days: Option<i32>` (e.g. 7, 14, 30)
-- `archived_at: Option<i64>` (optional; post-MVP if you want “hide but keep history”)
+- `archived_at: Option<i64>` (optional; included in schema but UI support can be post-MVP)
 
 Invariants:
 - `display_name.trim()` must not be empty.
@@ -200,7 +200,7 @@ Core fields:
 Normalization rules (must be identical everywhere):
 - trim
 - lowercase
-- replace spaces with `-` (or reject spaces; choose one and document)
+- replace spaces with `-`
 - collapse repeated `-`
 - reject empty after normalization
 
@@ -309,90 +309,19 @@ Migration requirements:
 
 ### 6.3 Schema (MVP)
 
-Below is the MVP schema expressed as SQL. Adjust as needed, but keep the relationships and indexes.
+The authoritative SQL schema lives in `docs/DB_SCHEMA.md`. Keep this document aligned with it.
 
-#### 001_init.sql
-```sql
--- Schema version table
-CREATE TABLE IF NOT EXISTS knotter_schema (
-  version INTEGER NOT NULL
-);
-
--- Contacts
-CREATE TABLE IF NOT EXISTS contacts (
-  id TEXT PRIMARY KEY,                         -- UUID string
-  display_name TEXT NOT NULL,
-  email TEXT,
-  phone TEXT,
-  handle TEXT,
-  timezone TEXT,
-
-  next_touchpoint_at INTEGER,                  -- unix seconds UTC
-  cadence_days INTEGER,                        -- integer days
-
-  created_at INTEGER NOT NULL,                 -- unix seconds UTC
-  updated_at INTEGER NOT NULL,                 -- unix seconds UTC
-  archived_at INTEGER                          -- unix seconds UTC (optional)
-);
-
-CREATE INDEX IF NOT EXISTS idx_contacts_display_name
-  ON contacts(display_name);
-
-CREATE INDEX IF NOT EXISTS idx_contacts_next_touchpoint_at
-  ON contacts(next_touchpoint_at);
-
-CREATE INDEX IF NOT EXISTS idx_contacts_archived_at
-  ON contacts(archived_at);
-
--- Tags
-CREATE TABLE IF NOT EXISTS tags (
-  id TEXT PRIMARY KEY,                         -- UUID string
-  name TEXT NOT NULL UNIQUE                    -- normalized lowercase
-);
-
-CREATE INDEX IF NOT EXISTS idx_tags_name
-  ON tags(name);
-
--- Contact <-> Tag join
-CREATE TABLE IF NOT EXISTS contact_tags (
-  contact_id TEXT NOT NULL,
-  tag_id TEXT NOT NULL,
-
-  PRIMARY KEY (contact_id, tag_id),
-  FOREIGN KEY(contact_id) REFERENCES contacts(id) ON DELETE CASCADE,
-  FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_contact_tags_contact_id
-  ON contact_tags(contact_id);
-
-CREATE INDEX IF NOT EXISTS idx_contact_tags_tag_id
-  ON contact_tags(tag_id);
-
--- Interactions
-CREATE TABLE IF NOT EXISTS interactions (
-  id TEXT PRIMARY KEY,                         -- UUID string
-  contact_id TEXT NOT NULL,
-
-  occurred_at INTEGER NOT NULL,                -- unix seconds UTC
-  created_at INTEGER NOT NULL,                 -- unix seconds UTC
-
-  kind TEXT NOT NULL,                          -- e.g. "call", "text", "hangout", "email", "other:foo"
-  note TEXT NOT NULL,
-  follow_up_at INTEGER,                        -- unix seconds UTC (optional)
-
-  FOREIGN KEY(contact_id) REFERENCES contacts(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_interactions_contact_occurred
-  ON interactions(contact_id, occurred_at DESC);
-````
+Summary of MVP tables/indexes:
+* `knotter_schema(version)` for migration tracking.
+* `contacts` with `archived_at` included for future archiving (unused in MVP UI).
+* `tags` (normalized), `contact_tags` join table.
+* `interactions` with `kind` stored as a normalized string.
+* Indexes on `contacts.display_name`, `contacts.next_touchpoint_at`, `contacts.archived_at`,
+  `tags.name`, `contact_tags` foreign keys, and `interactions(contact_id, occurred_at DESC)`.
 
 Notes:
-
-* IDs are stored as TEXT UUIDs for debugging and portability.
+* IDs are stored as TEXT UUIDs.
 * Timestamps are INTEGER unix seconds UTC.
-* `kind` is a normalized string to avoid schema churn; core maps to enum.
 
 ### 6.4 Repository boundaries
 
@@ -828,4 +757,3 @@ To avoid schema churn:
   * parse known literals into enum variants
   * parse `other:` prefix into `Other(String)`
   * unknown values map to `Other(raw)` as a forward-compat fallback
-
