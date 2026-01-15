@@ -1,5 +1,5 @@
 use crate::error::{Result, StoreError};
-use chrono::{DateTime, Duration, FixedOffset, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Duration, FixedOffset, TimeZone, Utc};
 use knotter_core::domain::TagName;
 use knotter_core::filter::{ContactFilter, FilterExpr};
 use knotter_core::rules::DueSelector;
@@ -85,12 +85,15 @@ impl ContactQuery {
         if let Some(selector) = self.due {
             match selector {
                 DueSelector::Overdue => {
-                    clauses.push("next_touchpoint_at IS NOT NULL AND next_touchpoint_at < ?".to_string());
+                    clauses.push(
+                        "next_touchpoint_at IS NOT NULL AND next_touchpoint_at < ?".to_string(),
+                    );
                     params.push(Value::from(now_utc));
                 }
                 DueSelector::Today => {
                     clauses.push("next_touchpoint_at >= ? AND next_touchpoint_at < ?".to_string());
-                    params.push(Value::from(bounds.start_of_today));
+                    let today_lower = std::cmp::max(bounds.start_of_today, now_utc);
+                    params.push(Value::from(today_lower));
                     params.push(Value::from(bounds.start_of_tomorrow));
                 }
                 DueSelector::Soon => {
@@ -145,15 +148,10 @@ struct DueBounds {
 }
 
 fn day_bounds(now_utc: i64, soon_days: i64, local_offset: FixedOffset) -> DueBounds {
-    let now = DateTime::<Utc>::from_utc(
-        NaiveDateTime::from_timestamp_opt(now_utc, 0).expect("valid timestamp"),
-        Utc,
-    );
+    let now = DateTime::<Utc>::from_timestamp(now_utc, 0).expect("valid timestamp");
     let local = now.with_timezone(&local_offset);
     let local_date = local.date_naive();
-    let start_of_today_local = local_date
-        .and_hms_opt(0, 0, 0)
-        .expect("midnight is valid");
+    let start_of_today_local = local_date.and_hms_opt(0, 0, 0).expect("midnight is valid");
     let start_of_tomorrow_local = start_of_today_local + Duration::days(1);
 
     let start_of_today = local_offset

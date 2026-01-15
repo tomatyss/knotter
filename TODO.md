@@ -187,7 +187,7 @@ Core compiles standalone; due logic + parser are tested; invariants enforced con
     - [x] `journal_mode = WAL`
     - [x] `synchronous = NORMAL`
     - [x] `busy_timeout = 2000` (or config)
-- [ ] Ensure file permissions are user-restricted where possible (document OS limitations)
+- [x] Ensure file permissions are user-restricted where possible (document OS limitations)
 
 ### C2. Migrations framework
 - [x] Create `migrations/` directory in `knotter-store`
@@ -233,9 +233,9 @@ Implement repositories (traits or concrete structs). Keep SQL internal.
 - [x] `add_interaction`
 - [x] `list_interactions(contact_id, limit, offset)`
 - [ ] `delete_interaction` (optional MVP)
-- [ ] `touch_contact` helper:
-  - [ ] inserts a minimal interaction
-  - [ ] optionally reschedules next_touchpoint_at (when requested + cadence exists)
+- [x] `touch_contact` helper:
+  - [x] inserts a minimal interaction
+  - [x] optionally reschedules next_touchpoint_at (when requested + cadence exists)
 
 ### C4. SQL query compilation from filter AST
 - [x] Implement `ContactQuery` compilation:
@@ -258,12 +258,12 @@ Implement repositories (traits or concrete structs). Keep SQL internal.
   - [x] normalization is applied
   - [x] attach/detach
   - [x] counts correct
-- [ ] Filter tests:
+- [x] Filter tests:
   - [x] tag AND logic correct
   - [x] due filters correct (overdue/today/soon/none)
-- [ ] Interaction tests:
+- [x] Interaction tests:
   - [x] add/list order by occurred_at desc
-  - [ ] touch creates interaction and optional reschedule behavior works
+  - [x] touch creates interaction and optional reschedule behavior works
 
 **DoD (Milestone C)**  
 DB opens via XDG path, migrations run, repos work, and tests cover the core behaviors.
@@ -273,49 +273,49 @@ DB opens via XDG path, migrations run, repos work, and tests cover the core beha
 ## 4) Milestone D — CLI MVP (knotter-cli)
 
 ### D1. CLI skeleton
-- [ ] Implement `knotter` binary entry:
-  - [ ] parse args
-  - [ ] open DB + migrate
-  - [ ] run command
-  - [ ] map errors to exit codes
-- [ ] Add global flags:
-  - [ ] `--db-path` (optional override, for testing)
-  - [ ] `--config` (optional)
-  - [ ] `--json` (for commands that support it)
-  - [ ] `--verbose` (optional)
+- [x] Implement `knotter` binary entry:
+  - [x] parse args
+  - [x] open DB + migrate
+  - [x] run command
+  - [x] map errors to exit codes
+- [x] Add global flags:
+  - [x] `--db-path` (optional override, for testing)
+  - [x] `--config` (optional)
+  - [x] `--json` (for commands that support it)
+  - [x] `--verbose` (optional)
 
 ### D2. Core commands (MVP)
 Contacts:
-- [ ] `knotter add-contact`
+- [x] `knotter add-contact`
   - [ ] `--name`
   - [ ] `--email?`
   - [ ] `--phone?`
   - [ ] `--handle?`
   - [ ] `--cadence-days?`
   - [ ] `--next-touchpoint-at?` (date input)
-- [ ] `knotter edit-contact <id>` (flags optional; only update provided fields)
-- [ ] `knotter show <id>`
-- [ ] `knotter list [--filter "…"] [--json]`
-- [ ] `knotter delete <id>` (optional but useful)
+- [x] `knotter edit-contact <id>` (flags optional; only update provided fields)
+- [x] `knotter show <id>`
+- [x] `knotter list [--filter "…"] [--json]`
+- [x] `knotter delete <id>` (optional but useful)
 
 Tags:
-- [ ] `knotter tag add <id> <tag>`
-- [ ] `knotter tag rm <id> <tag>`
-- [ ] `knotter tag ls [--json]`
+- [x] `knotter tag add <id> <tag>`
+- [x] `knotter tag rm <id> <tag>`
+- [x] `knotter tag ls [--json]`
 
 Interactions:
-- [ ] `knotter add-note <id>`
+- [x] `knotter add-note <id>`
   - [ ] `--kind call|text|hangout|email|other:<label>`
   - [ ] `--when` (optional, default now)
   - [ ] `--note` (optional; if absent, read stdin for note)
   - [ ] `--follow-up-at` (optional)
-- [ ] `knotter touch <id>`
+-- [x] `knotter touch <id>`
   - [ ] creates a small interaction at “now”
   - [ ] `--reschedule` (if cadence set, update next touchpoint)
 
 Touchpoints:
-- [ ] `knotter schedule <id> --at "YYYY-MM-DD" [--time "HH:MM"]`
-- [ ] `knotter clear-schedule <id>`
+- [x] `knotter schedule <id> --at "YYYY-MM-DD" [--time "HH:MM"]`
+- [x] `knotter clear-schedule <id>`
 
 Reminders:
 - [ ] `knotter remind [--soon-days N] [--notify] [--json]`
@@ -332,19 +332,19 @@ Import/export:
 - [ ] `knotter export ics [--out <file>] [--window-days N]`
 
 ### D3. Output format spec
-- [ ] Write `docs/cli-output.md` (short but explicit):
-  - [ ] how IDs are printed
-  - [ ] how due states are shown
-  - [ ] JSON schema notes (fields + stability expectations)
+- [x] Write `docs/cli-output.md` (short but explicit):
+  - [x] how IDs are printed
+  - [x] how due states are shown
+  - [x] JSON schema notes (fields + stability expectations)
 
 ### D4. CLI integration tests
-- [ ] Add a small harness:
-  - [ ] create temp DB
-  - [ ] run binary commands
-  - [ ] assert outputs
-- [ ] Test flows:
-  - [ ] add contact → list includes it
-  - [ ] tag add → filter `#tag` finds it
+- [x] Add a small harness:
+  - [x] create temp DB
+  - [x] run binary commands
+  - [x] assert outputs
+- [x] Test flows:
+  - [x] add contact → list includes it
+  - [x] tag add → filter `#tag` finds it
   - [ ] schedule → remind includes it in correct bucket
 
 **DoD (Milestone D)**  

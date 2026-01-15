@@ -1,7 +1,7 @@
 use crate::domain::TagName;
 use crate::filter::ast::{ContactFilter, FilterExpr};
-use crate::rules::DueSelector;
 use crate::filter::FilterParseError;
+use crate::rules::DueSelector;
 
 pub fn parse_filter(input: &str) -> Result<ContactFilter, FilterParseError> {
     let mut terms = Vec::new();
@@ -11,7 +11,8 @@ pub fn parse_filter(input: &str) -> Result<ContactFilter, FilterParseError> {
             if tag_raw.is_empty() {
                 return Err(FilterParseError::EmptyTag);
             }
-            let tag = TagName::new(tag_raw).map_err(|_| FilterParseError::InvalidTag(tag_raw.to_string()))?;
+            let tag = TagName::new(tag_raw)
+                .map_err(|_| FilterParseError::InvalidTag(tag_raw.to_string()))?;
             terms.push(FilterExpr::Tag(tag));
         } else if let Some(selector_raw) = token.strip_prefix("due:") {
             let selector = parse_due_selector(selector_raw)?;
@@ -76,6 +77,9 @@ mod tests {
     #[test]
     fn invalid_due_is_error() {
         let err = parse_filter("due:later").unwrap_err();
-        assert_eq!(err, FilterParseError::InvalidDueSelector("later".to_string()));
+        assert_eq!(
+            err,
+            FilterParseError::InvalidDueSelector("later".to_string())
+        );
     }
 }

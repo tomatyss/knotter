@@ -1,4 +1,4 @@
-use chrono::{DateTime, Duration, FixedOffset, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Duration, FixedOffset, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,17 +51,11 @@ pub fn compute_due_state(
 }
 
 fn local_day_bounds(now_utc: i64, local_offset: FixedOffset) -> (i64, i64) {
-    let now = DateTime::<Utc>::from_utc(
-        NaiveDateTime::from_timestamp_opt(now_utc, 0).expect(\"valid timestamp\"),
-        Utc,
-    );
+    let now = DateTime::<Utc>::from_timestamp(now_utc, 0).expect("valid timestamp");
     let local = now.with_timezone(&local_offset);
     let local_date = local.date_naive();
-    let start_of_today_local = local_date
-        .and_hms_opt(0, 0, 0)
-        .expect("midnight is valid");
+    let start_of_today_local = local_date.and_hms_opt(0, 0, 0).expect("midnight is valid");
     let start_of_tomorrow_local = start_of_today_local + Duration::days(1);
-
     let start_of_today = local_offset
         .from_local_datetime(&start_of_today_local)
         .single()
@@ -85,32 +79,65 @@ mod tests {
 
     #[test]
     fn due_state_unscheduled() {
-        let now = Utc.with_ymd_and_hms(2024, 1, 10, 12, 0, 0).unwrap().timestamp();
+        let now = Utc
+            .with_ymd_and_hms(2024, 1, 10, 12, 0, 0)
+            .unwrap()
+            .timestamp();
         let offset = FixedOffset::east_opt(0).unwrap();
-        assert_eq!(compute_due_state(now, None, 7, offset), DueState::Unscheduled);
+        assert_eq!(
+            compute_due_state(now, None, 7, offset),
+            DueState::Unscheduled
+        );
     }
 
     #[test]
     fn due_state_today() {
         let offset = FixedOffset::east_opt(0).unwrap();
-        let now = Utc.with_ymd_and_hms(2024, 1, 10, 12, 0, 0).unwrap().timestamp();
-        let next = Utc.with_ymd_and_hms(2024, 1, 10, 18, 0, 0).unwrap().timestamp();
-        assert_eq!(compute_due_state(now, Some(next), 7, offset), DueState::Today);
+        let now = Utc
+            .with_ymd_and_hms(2024, 1, 10, 12, 0, 0)
+            .unwrap()
+            .timestamp();
+        let next = Utc
+            .with_ymd_and_hms(2024, 1, 10, 18, 0, 0)
+            .unwrap()
+            .timestamp();
+        assert_eq!(
+            compute_due_state(now, Some(next), 7, offset),
+            DueState::Today
+        );
     }
 
     #[test]
     fn due_state_soon() {
         let offset = FixedOffset::east_opt(0).unwrap();
-        let now = Utc.with_ymd_and_hms(2024, 1, 10, 12, 0, 0).unwrap().timestamp();
-        let next = Utc.with_ymd_and_hms(2024, 1, 12, 9, 0, 0).unwrap().timestamp();
-        assert_eq!(compute_due_state(now, Some(next), 7, offset), DueState::Soon);
+        let now = Utc
+            .with_ymd_and_hms(2024, 1, 10, 12, 0, 0)
+            .unwrap()
+            .timestamp();
+        let next = Utc
+            .with_ymd_and_hms(2024, 1, 12, 9, 0, 0)
+            .unwrap()
+            .timestamp();
+        assert_eq!(
+            compute_due_state(now, Some(next), 7, offset),
+            DueState::Soon
+        );
     }
 
     #[test]
     fn due_state_overdue() {
         let offset = FixedOffset::east_opt(0).unwrap();
-        let now = Utc.with_ymd_and_hms(2024, 1, 10, 12, 0, 0).unwrap().timestamp();
-        let next = Utc.with_ymd_and_hms(2024, 1, 9, 12, 0, 0).unwrap().timestamp();
-        assert_eq!(compute_due_state(now, Some(next), 7, offset), DueState::Overdue);
+        let now = Utc
+            .with_ymd_and_hms(2024, 1, 10, 12, 0, 0)
+            .unwrap()
+            .timestamp();
+        let next = Utc
+            .with_ymd_and_hms(2024, 1, 9, 12, 0, 0)
+            .unwrap()
+            .timestamp();
+        assert_eq!(
+            compute_due_state(now, Some(next), 7, offset),
+            DueState::Overdue
+        );
     }
 }

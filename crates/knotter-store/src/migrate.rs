@@ -1,13 +1,10 @@
 use crate::error::{Result, StoreError};
 use rusqlite::{Connection, OptionalExtension, Transaction};
 
-const MIGRATIONS: &[(&str, &str)] = &[(
-    "001_init.sql",
-    include_str!("../migrations/001_init.sql"),
-)];
+const MIGRATIONS: &[(&str, &str)] = &[("001_init.sql", include_str!("../migrations/001_init.sql"))];
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
-    let tx = conn.transaction()?;
+    let tx = conn.unchecked_transaction()?;
     ensure_schema_table(&tx)?;
     let current = current_version(&tx)?;
 
@@ -33,16 +30,12 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
 }
 
 fn ensure_schema_table(tx: &Transaction<'_>) -> Result<()> {
-    tx.execute_batch(
-        "CREATE TABLE IF NOT EXISTS knotter_schema (version INTEGER NOT NULL);",
-    )?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS knotter_schema (version INTEGER NOT NULL);")?;
 
     let existing: Option<i64> = tx
-        .query_row(
-            "SELECT version FROM knotter_schema LIMIT 1;",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT version FROM knotter_schema LIMIT 1;", [], |row| {
+            row.get(0)
+        })
         .optional()?;
 
     if existing.is_none() {
@@ -53,11 +46,9 @@ fn ensure_schema_table(tx: &Transaction<'_>) -> Result<()> {
 }
 
 fn current_version(tx: &Transaction<'_>) -> Result<i64> {
-    let version: i64 = tx.query_row(
-        "SELECT version FROM knotter_schema LIMIT 1;",
-        [],
-        |row| row.get(0),
-    )?;
+    let version: i64 = tx.query_row("SELECT version FROM knotter_schema LIMIT 1;", [], |row| {
+        row.get(0)
+    })?;
     Ok(version)
 }
 

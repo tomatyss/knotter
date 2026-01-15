@@ -1,6 +1,7 @@
 use crate::error::{Result, StoreError};
 use knotter_core::domain::{ContactId, Interaction, InteractionId, InteractionKind};
-use rusqlite::{params, Connection};
+use knotter_core::rules::next_touchpoint_after_touch;
+use rusqlite::{params, Connection, OptionalExtension};
 use std::str::FromStr;
 
 #[derive(Debug, Clone)]
@@ -51,7 +52,12 @@ impl<'a> InteractionsRepo<'a> {
         })
     }
 
-    pub fn list_for_contact(&self, contact_id: ContactId, limit: i64, offset: i64) -> Result<Vec<Interaction>> {
+    pub fn list_for_contact(
+        &self,
+        contact_id: ContactId,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Interaction>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, contact_id, occurred_at, created_at, kind, note, follow_up_at
              FROM interactions
@@ -65,6 +71,68 @@ impl<'a> InteractionsRepo<'a> {
             items.push(interaction_from_row(row)?);
         }
         Ok(items)
+    }
+
+    pub fn touch_contact(
+        &self,
+        now_utc: i64,
+        contact_id: ContactId,
+        reschedule: bool,
+    ) -> Result<Interaction> {
+        let tx = self.conn.unchecked_transaction()?;
+
+        let contact_row: Option<(Option<i32>, Option<i64>)> = tx
+            .query_row(
+                "SELECT cadence_days, next_touchpoint_at FROM contacts WHERE id = ?1;",
+                [contact_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+
+        let (cadence_days, existing_next) = match contact_row {
+            Some(values) => values,
+            None => return Err(StoreError::NotFound(contact_id.to_string())),
+        };
+
+        let next_touchpoint =
+            next_touchpoint_after_touch(now_utc, cadence_days, reschedule, existing_next)?;
+
+        if next_touchpoint != existing_next {
+            tx.execute(
+                "UPDATE contacts SET next_touchpoint_at = ?2, updated_at = ?3 WHERE id = ?1;",
+                params![contact_id.to_string(), next_touchpoint, now_utc],
+            )?;
+        }
+
+        let id = InteractionId::new();
+        let kind = InteractionKind::other("touch")?;
+        let kind_raw = serialize_kind(&kind)?;
+
+        tx.execute(
+            "INSERT INTO interactions (id, contact_id, occurred_at, created_at, kind, note, follow_up_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7);",
+            params![
+                id.to_string(),
+                contact_id.to_string(),
+                now_utc,
+                now_utc,
+                kind_raw,
+                "",
+                Option::<i64>::None,
+            ],
+        )?;
+
+        tx.commit()?;
+
+        Ok(Interaction {
+            id,
+            contact_id,
+            occurred_at: now_utc,
+            created_at: now_utc,
+            kind,
+            note: String::new(),
+            follow_up_at: None,
+        })
     }
 }
 

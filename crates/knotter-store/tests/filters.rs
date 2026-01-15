@@ -9,7 +9,10 @@ fn filter_tags_and_due() {
     let store = Store::open_in_memory().expect("open");
     store.migrate().expect("migrate");
 
-    let now = Utc.with_ymd_and_hms(2024, 1, 10, 12, 0, 0).unwrap().timestamp();
+    let now = Utc
+        .with_ymd_and_hms(2024, 1, 10, 12, 0, 0)
+        .unwrap()
+        .timestamp();
     let offset = FixedOffset::east_opt(0).unwrap();
 
     let overdue = store
@@ -63,7 +66,7 @@ fn filter_tags_and_due() {
         )
         .expect("create contact");
 
-    let unscheduled = store
+    let _unscheduled = store
         .contacts()
         .create(
             now,
@@ -82,15 +85,24 @@ fn filter_tags_and_due() {
 
     store
         .tags()
-        .add_tag_to_contact(&overdue.id.to_string(), knotter_core::TagName::new("friends").unwrap())
+        .add_tag_to_contact(
+            &overdue.id.to_string(),
+            knotter_core::TagName::new("friends").unwrap(),
+        )
         .expect("tag overdue");
     store
         .tags()
-        .add_tag_to_contact(&today.id.to_string(), knotter_core::TagName::new("friends").unwrap())
+        .add_tag_to_contact(
+            &today.id.to_string(),
+            knotter_core::TagName::new("friends").unwrap(),
+        )
         .expect("tag today");
     store
         .tags()
-        .add_tag_to_contact(&today.id.to_string(), knotter_core::TagName::new("work").unwrap())
+        .add_tag_to_contact(
+            &today.id.to_string(),
+            knotter_core::TagName::new("work").unwrap(),
+        )
         .expect("tag today work");
 
     let filter = parse_filter("#friends").expect("parse filter");

@@ -1,6 +1,7 @@
 use crate::error::{Result, StoreError};
-use knotter_core::domain::{Tag, TagId, TagName};
-use rusqlite::{params, Connection, OptionalExtension};
+use knotter_core::domain::{ContactId, Tag, TagId, TagName};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
+use std::collections::HashMap;
 use std::str::FromStr;
 
 pub struct TagsRepo<'a> {
@@ -50,6 +51,46 @@ impl<'a> TagsRepo<'a> {
         Ok(tags)
     }
 
+    pub fn list_names_for_contacts(
+        &self,
+        contact_ids: &[ContactId],
+    ) -> Result<HashMap<ContactId, Vec<String>>> {
+        let mut map: HashMap<ContactId, Vec<String>> = HashMap::new();
+        if contact_ids.is_empty() {
+            return Ok(map);
+        }
+
+        let placeholders = (1..=contact_ids.len())
+            .map(|idx| format!("?{idx}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "SELECT ct.contact_id, t.name
+             FROM contact_tags ct
+             INNER JOIN tags t ON t.id = ct.tag_id
+             WHERE ct.contact_id IN ({})
+             ORDER BY t.name ASC;",
+            placeholders
+        );
+
+        let params = contact_ids
+            .iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>();
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query(params_from_iter(params.iter()))?;
+        while let Some(row) = rows.next()? {
+            let contact_id_raw: String = row.get(0)?;
+            let contact_id = ContactId::from_str(&contact_id_raw)
+                .map_err(|_| StoreError::InvalidId(contact_id_raw.clone()))?;
+            let tag_name: String = row.get(1)?;
+            map.entry(contact_id).or_default().push(tag_name);
+        }
+
+        Ok(map)
+    }
+
     pub fn add_tag_to_contact(&self, contact_id: &str, tag: TagName) -> Result<()> {
         let tag = self.upsert(tag)?;
         self.conn.execute(
@@ -79,7 +120,7 @@ impl<'a> TagsRepo<'a> {
     }
 
     pub fn set_contact_tags(&self, contact_id: &str, tags: Vec<TagName>) -> Result<()> {
-        let tx = self.conn.transaction()?;
+        let tx = self.conn.unchecked_transaction()?;
         tx.execute(
             "DELETE FROM contact_tags WHERE contact_id = ?1;",
             [contact_id],
@@ -112,7 +153,9 @@ fn upsert_inner(conn: &Connection, name: TagName) -> Result<Tag> {
     if let Some(row) = rows.next()? {
         tag_from_row(row)
     } else {
-        Err(StoreError::Migration("missing tag after upsert".to_string()))
+        Err(StoreError::Migration(
+            "missing tag after upsert".to_string(),
+        ))
     }
 }
 

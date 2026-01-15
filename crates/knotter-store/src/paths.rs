@@ -24,6 +24,7 @@ pub fn ensure_data_dir() -> Result<PathBuf> {
     if !dir.exists() {
         fs::create_dir_all(&dir)?;
     }
+    restrict_dir_permissions(&dir)?;
     Ok(dir)
 }
 
@@ -33,4 +34,17 @@ pub fn db_path() -> Result<PathBuf> {
 
 pub fn db_path_in(dir: &Path) -> PathBuf {
     dir.join(DB_FILENAME)
+}
+
+#[cfg(unix)]
+fn restrict_dir_permissions(dir: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let perms = fs::Permissions::from_mode(0o700);
+    fs::set_permissions(dir, perms)?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn restrict_dir_permissions(_dir: &Path) -> Result<()> {
+    Ok(())
 }
