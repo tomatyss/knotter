@@ -353,6 +353,7 @@ Avoid leaking SQL details to callers.
 * `add_tag(contact_id, tag)`
 * `remove_tag(contact_id, tag)`
 * `list_tags_for_contact(contact_id) -> Vec<Tag>`
+* `list_names_for_contacts(contact_ids: &[ContactId]) -> Map<ContactId, Vec<String>>` (bulk tag lookup for list views)
 
 #### InteractionsRepository
 

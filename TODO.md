@@ -278,6 +278,7 @@ DB opens via XDG path, migrations run, repos work, and tests cover the core beha
   - [x] open DB + migrate
   - [x] run command
   - [x] map errors to exit codes
+  - [x] invalid filter syntax returns exit code 3
 - [x] Add global flags:
   - [x] `--db-path` (optional override, for testing)
   - [x] `--config` (optional)
@@ -287,15 +288,16 @@ DB opens via XDG path, migrations run, repos work, and tests cover the core beha
 ### D2. Core commands (MVP)
 Contacts:
 - [x] `knotter add-contact`
-  - [ ] `--name`
-  - [ ] `--email?`
-  - [ ] `--phone?`
-  - [ ] `--handle?`
-  - [ ] `--cadence-days?`
-  - [ ] `--next-touchpoint-at?` (date input)
+  - [x] `--name`
+  - [x] `--email?`
+  - [x] `--phone?`
+  - [x] `--handle?`
+  - [x] `--cadence-days?`
+  - [x] `--next-touchpoint-at?` (date input)
 - [x] `knotter edit-contact <id>` (flags optional; only update provided fields)
 - [x] `knotter show <id>`
 - [x] `knotter list [--filter "…"] [--json]`
+  - [x] bulk tag fetch to avoid N+1 queries
 - [x] `knotter delete <id>` (optional but useful)
 
 Tags:
@@ -305,13 +307,13 @@ Tags:
 
 Interactions:
 - [x] `knotter add-note <id>`
-  - [ ] `--kind call|text|hangout|email|other:<label>`
-  - [ ] `--when` (optional, default now)
-  - [ ] `--note` (optional; if absent, read stdin for note)
-  - [ ] `--follow-up-at` (optional)
--- [x] `knotter touch <id>`
-  - [ ] creates a small interaction at “now”
-  - [ ] `--reschedule` (if cadence set, update next touchpoint)
+  - [x] `--kind call|text|hangout|email|other:<label>`
+  - [x] `--when` (optional, default now)
+  - [x] `--note` (optional; if absent, read stdin for note)
+  - [x] `--follow-up-at` (optional)
+- [x] `knotter touch <id>`
+  - [x] creates a small interaction at “now”
+  - [x] `--reschedule` (if cadence set, update next touchpoint)
 
 Touchpoints:
 - [x] `knotter schedule <id> --at "YYYY-MM-DD" [--time "HH:MM"]`

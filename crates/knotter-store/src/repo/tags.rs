@@ -1,8 +1,28 @@
 use crate::error::{Result, StoreError};
 use knotter_core::domain::{ContactId, Tag, TagId, TagName};
-use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 use std::str::FromStr;
+
+struct TempTableGuard<'a> {
+    conn: &'a Connection,
+    name: &'static str,
+}
+
+impl<'a> TempTableGuard<'a> {
+    fn new(conn: &'a Connection, name: &'static str) -> Self {
+        Self { conn, name }
+    }
+}
+
+impl Drop for TempTableGuard<'_> {
+    fn drop(&mut self) {
+        let _ = self.conn.execute(
+            &format!("DROP TABLE IF EXISTS temp.{name};", name = self.name),
+            [],
+        );
+    }
+}
 
 pub struct TagsRepo<'a> {
     conn: &'a Connection,
@@ -60,32 +80,38 @@ impl<'a> TagsRepo<'a> {
             return Ok(map);
         }
 
-        let placeholders = (1..=contact_ids.len())
-            .map(|idx| format!("?{idx}"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let sql = format!(
-            "SELECT ct.contact_id, t.name
-             FROM contact_tags ct
-             INNER JOIN tags t ON t.id = ct.tag_id
-             WHERE ct.contact_id IN ({})
-             ORDER BY t.name ASC;",
-            placeholders
-        );
+        const TEMP_TABLE: &str = "temp_contact_ids";
+        let _guard = TempTableGuard::new(self.conn, TEMP_TABLE);
+        self.conn.execute_batch(
+            "DROP TABLE IF EXISTS temp.temp_contact_ids;
+             CREATE TEMP TABLE temp.temp_contact_ids (id TEXT PRIMARY KEY);",
+        )?;
 
-        let params = contact_ids
-            .iter()
-            .map(|id| id.to_string())
-            .collect::<Vec<_>>();
+        {
+            let mut insert_stmt = self
+                .conn
+                .prepare("INSERT OR IGNORE INTO temp.temp_contact_ids (id) VALUES (?1);")?;
+            for id in contact_ids {
+                insert_stmt.execute([id.to_string()])?;
+            }
+        }
 
-        let mut stmt = self.conn.prepare(&sql)?;
-        let mut rows = stmt.query(params_from_iter(params.iter()))?;
-        while let Some(row) = rows.next()? {
-            let contact_id_raw: String = row.get(0)?;
-            let contact_id = ContactId::from_str(&contact_id_raw)
-                .map_err(|_| StoreError::InvalidId(contact_id_raw.clone()))?;
-            let tag_name: String = row.get(1)?;
-            map.entry(contact_id).or_default().push(tag_name);
+        {
+            let mut stmt = self.conn.prepare(
+                "SELECT ct.contact_id, t.name
+                 FROM contact_tags ct
+                 INNER JOIN tags t ON t.id = ct.tag_id
+                 INNER JOIN temp.temp_contact_ids tmp ON tmp.id = ct.contact_id
+                 ORDER BY t.name ASC;",
+            )?;
+            let mut rows = stmt.query([])?;
+            while let Some(row) = rows.next()? {
+                let contact_id_raw: String = row.get(0)?;
+                let contact_id = ContactId::from_str(&contact_id_raw)
+                    .map_err(|_| StoreError::InvalidId(contact_id_raw.clone()))?;
+                let tag_name: String = row.get(1)?;
+                map.entry(contact_id).or_default().push(tag_name);
+            }
         }
 
         Ok(map)

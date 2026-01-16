@@ -47,6 +47,13 @@ Output: JSON array of tag counts:
 - `name` (string, normalized)
 - `count` (number)
 
+### `knotter tag add/rm --json`
+
+Output: JSON object containing:
+
+- `id` (string UUID)
+- `tag` (string, normalized)
+
 ### JSON for mutating commands
 
 For `add-contact`, `edit-contact`, `schedule`, `clear-schedule`, `add-note`, and `touch`,
@@ -56,3 +63,7 @@ JSON output includes the created/updated entity:
 - Interaction mutations return a serialized `InteractionDto` object.
 
 Note: This output shape may be expanded in the future, but existing fields are stable.
+
+## Exit codes (selected)
+
+- `3` for invalid filter syntax (e.g., `due:later`).

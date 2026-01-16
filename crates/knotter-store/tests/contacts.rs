@@ -1,4 +1,4 @@
-use knotter_core::domain::TagName;
+use knotter_core::domain::{ContactId, TagName};
 use knotter_store::repo::{ContactNew, ContactUpdate};
 use knotter_store::Store;
 
@@ -103,4 +103,101 @@ fn tags_attach_and_list() {
         .list_for_contact(&contact.id.to_string())
         .expect("list tags after remove");
     assert!(tags.is_empty());
+}
+
+#[test]
+fn list_names_for_contacts_handles_large_inputs() {
+    let store = Store::open_in_memory().expect("open in memory");
+    store.migrate().expect("migrate");
+
+    let now = 1_700_000_000;
+    let contact = store
+        .contacts()
+        .create(
+            now,
+            ContactNew {
+                display_name: "Ada Lovelace".to_string(),
+                email: None,
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create contact");
+
+    store
+        .tags()
+        .add_tag_to_contact(&contact.id.to_string(), TagName::new("friends").unwrap())
+        .expect("add tag");
+
+    let mut ids = Vec::with_capacity(1100);
+    ids.push(contact.id);
+    for _ in 0..1099 {
+        ids.push(ContactId::new());
+    }
+
+    let map = store
+        .tags()
+        .list_names_for_contacts(&ids)
+        .expect("bulk tag list");
+    let tags = map.get(&contact.id).expect("tag list");
+    assert_eq!(tags, &vec!["friends".to_string()]);
+}
+
+#[test]
+fn list_names_for_contacts_does_not_touch_main_temp_contact_ids_table() {
+    let store = Store::open_in_memory().expect("open in memory");
+    store.migrate().expect("migrate");
+
+    let now = 1_700_000_000;
+    let contact = store
+        .contacts()
+        .create(
+            now,
+            ContactNew {
+                display_name: "Grace Hopper".to_string(),
+                email: None,
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create contact");
+
+    store
+        .connection()
+        .execute(
+            "CREATE TABLE temp_contact_ids (id TEXT PRIMARY KEY, marker TEXT);",
+            [],
+        )
+        .expect("create main table");
+    store
+        .connection()
+        .execute(
+            "INSERT INTO temp_contact_ids (id, marker) VALUES (?1, ?2);",
+            ["keep", "persist"],
+        )
+        .expect("insert marker");
+
+    let map = store
+        .tags()
+        .list_names_for_contacts(&[contact.id])
+        .expect("bulk tag list");
+    assert!(!map.contains_key(&contact.id));
+
+    let marker: String = store
+        .connection()
+        .query_row(
+            "SELECT marker FROM temp_contact_ids WHERE id = ?1;",
+            ["keep"],
+            |row| row.get(0),
+        )
+        .expect("marker row");
+    assert_eq!(marker, "persist");
 }
