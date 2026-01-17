@@ -1,4 +1,5 @@
 mod commands;
+mod notify;
 mod util;
 
 use anyhow::{Context as _, Result};
@@ -7,7 +8,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use crate::commands::{contacts, interactions, schedule, tags, Context};
+use crate::commands::{contacts, interactions, remind, schedule, tags, Context};
 use knotter_core::{filter::FilterParseError, CoreError};
 use knotter_store::error::{StoreError, StoreErrorKind};
 use knotter_store::{paths, Store};
@@ -44,6 +45,7 @@ enum Command {
     Schedule(schedule::ScheduleArgs),
     #[command(name = "clear-schedule")]
     ClearSchedule(schedule::ClearScheduleArgs),
+    Remind(remind::RemindArgs),
 }
 
 fn main() -> ExitCode {
@@ -104,6 +106,7 @@ fn run() -> Result<()> {
         Command::Touch(args) => interactions::touch_contact(&ctx, args),
         Command::Schedule(args) => schedule::schedule_contact(&ctx, args),
         Command::ClearSchedule(args) => schedule::clear_schedule(&ctx, args),
+        Command::Remind(args) => remind::remind(&ctx, args),
     }
 }
 

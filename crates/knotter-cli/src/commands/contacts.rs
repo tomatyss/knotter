@@ -269,7 +269,7 @@ pub fn list_contacts(ctx: &Context<'_>, args: ListArgs) -> Result<()> {
             .cloned()
             .unwrap_or_default();
         let due_state =
-            compute_due_state(now, contact.next_touchpoint_at, DEFAULT_SOON_DAYS, offset);
+            compute_due_state(now, contact.next_touchpoint_at, DEFAULT_SOON_DAYS, offset)?;
         items.push(ContactListItemDto {
             id: contact.id,
             display_name: contact.display_name,

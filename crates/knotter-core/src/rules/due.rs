@@ -1,4 +1,6 @@
 use chrono::{DateTime, Duration, FixedOffset, TimeZone, Utc};
+
+use crate::error::CoreError;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,33 +23,43 @@ pub enum DueSelector {
     None,
 }
 
+pub const MAX_SOON_DAYS: i64 = 3650;
+
+pub fn validate_soon_days(soon_days: i64) -> Result<i64, CoreError> {
+    if !(0..=MAX_SOON_DAYS).contains(&soon_days) {
+        return Err(CoreError::InvalidSoonDays(soon_days));
+    }
+    Ok(soon_days)
+}
+
 pub fn compute_due_state(
     now_utc: i64,
     next_touchpoint_at: Option<i64>,
     soon_days: i64,
     local_offset: FixedOffset,
-) -> DueState {
+) -> Result<DueState, CoreError> {
+    let soon_days = validate_soon_days(soon_days)?;
     let next = match next_touchpoint_at {
         Some(value) => value,
-        None => return DueState::Unscheduled,
+        None => return Ok(DueState::Unscheduled),
     };
 
     if next < now_utc {
-        return DueState::Overdue;
+        return Ok(DueState::Overdue);
     }
 
     let (start_of_today, start_of_tomorrow) = local_day_bounds(now_utc, local_offset);
 
     if next >= start_of_today && next < start_of_tomorrow {
-        return DueState::Today;
+        return Ok(DueState::Today);
     }
 
     let soon_end = start_of_tomorrow + Duration::days(soon_days).num_seconds();
     if next >= start_of_tomorrow && next < soon_end {
-        return DueState::Soon;
+        return Ok(DueState::Soon);
     }
 
-    DueState::Scheduled
+    Ok(DueState::Scheduled)
 }
 
 fn local_day_bounds(now_utc: i64, local_offset: FixedOffset) -> (i64, i64) {
@@ -74,7 +86,7 @@ fn local_day_bounds(now_utc: i64, local_offset: FixedOffset) -> (i64, i64) {
 
 #[cfg(test)]
 mod tests {
-    use super::{compute_due_state, DueState};
+    use super::{compute_due_state, validate_soon_days, DueState, MAX_SOON_DAYS};
     use chrono::{FixedOffset, TimeZone, Utc};
 
     #[test]
@@ -85,7 +97,7 @@ mod tests {
             .timestamp();
         let offset = FixedOffset::east_opt(0).unwrap();
         assert_eq!(
-            compute_due_state(now, None, 7, offset),
+            compute_due_state(now, None, 7, offset).unwrap(),
             DueState::Unscheduled
         );
     }
@@ -102,7 +114,7 @@ mod tests {
             .unwrap()
             .timestamp();
         assert_eq!(
-            compute_due_state(now, Some(next), 7, offset),
+            compute_due_state(now, Some(next), 7, offset).unwrap(),
             DueState::Today
         );
     }
@@ -119,7 +131,7 @@ mod tests {
             .unwrap()
             .timestamp();
         assert_eq!(
-            compute_due_state(now, Some(next), 7, offset),
+            compute_due_state(now, Some(next), 7, offset).unwrap(),
             DueState::Soon
         );
     }
@@ -136,8 +148,14 @@ mod tests {
             .unwrap()
             .timestamp();
         assert_eq!(
-            compute_due_state(now, Some(next), 7, offset),
+            compute_due_state(now, Some(next), 7, offset).unwrap(),
             DueState::Overdue
         );
+    }
+
+    #[test]
+    fn validate_soon_days_rejects_large_values() {
+        let result = validate_soon_days(MAX_SOON_DAYS + 1);
+        assert!(result.is_err());
     }
 }

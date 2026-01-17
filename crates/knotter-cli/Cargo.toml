@@ -12,6 +12,11 @@ clap = { version = "4", features = ["derive"] }
 chrono = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+notify-rust = { version = "4", optional = true }
+
+[features]
+default = []
+desktop-notify = ["notify-rust"]
 
 [[bin]]
 name = "knotter"

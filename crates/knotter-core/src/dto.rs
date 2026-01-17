@@ -43,3 +43,91 @@ pub struct ReminderOutputDto {
     pub today: Vec<ContactListItemDto>,
     pub soon: Vec<ContactListItemDto>,
 }
+
+impl ReminderOutputDto {
+    pub fn from_items(items: Vec<ContactListItemDto>) -> Self {
+        let mut output = Self {
+            overdue: Vec::new(),
+            today: Vec::new(),
+            soon: Vec::new(),
+        };
+
+        for item in items {
+            match item.due_state {
+                DueState::Overdue => output.overdue.push(item),
+                DueState::Today => output.today.push(item),
+                DueState::Soon => output.soon.push(item),
+                DueState::Scheduled | DueState::Unscheduled => {}
+            }
+        }
+
+        output
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.overdue.is_empty() && self.today.is_empty() && self.soon.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ContactListItemDto, ReminderOutputDto};
+    use crate::domain::ContactId;
+    use crate::rules::DueState;
+
+    #[test]
+    fn reminder_output_groups_only_due_buckets() {
+        let items = vec![
+            ContactListItemDto {
+                id: ContactId::new(),
+                display_name: "Ada".to_string(),
+                due_state: DueState::Overdue,
+                next_touchpoint_at: Some(1),
+                tags: vec!["friends".to_string()],
+            },
+            ContactListItemDto {
+                id: ContactId::new(),
+                display_name: "Grace".to_string(),
+                due_state: DueState::Today,
+                next_touchpoint_at: Some(2),
+                tags: Vec::new(),
+            },
+            ContactListItemDto {
+                id: ContactId::new(),
+                display_name: "Tim".to_string(),
+                due_state: DueState::Soon,
+                next_touchpoint_at: Some(3),
+                tags: Vec::new(),
+            },
+            ContactListItemDto {
+                id: ContactId::new(),
+                display_name: "Linus".to_string(),
+                due_state: DueState::Scheduled,
+                next_touchpoint_at: Some(4),
+                tags: Vec::new(),
+            },
+            ContactListItemDto {
+                id: ContactId::new(),
+                display_name: "Ken".to_string(),
+                due_state: DueState::Unscheduled,
+                next_touchpoint_at: None,
+                tags: Vec::new(),
+            },
+        ];
+
+        let output = ReminderOutputDto::from_items(items);
+
+        assert_eq!(output.overdue.len(), 1);
+        assert_eq!(output.today.len(), 1);
+        assert_eq!(output.soon.len(), 1);
+        assert_eq!(output.overdue[0].display_name, "Ada");
+        assert_eq!(output.today[0].display_name, "Grace");
+        assert_eq!(output.soon[0].display_name, "Tim");
+    }
+
+    #[test]
+    fn reminder_output_empty() {
+        let output = ReminderOutputDto::from_items(Vec::new());
+        assert!(output.is_empty());
+    }
+}

@@ -2,7 +2,7 @@ use crate::error::{Result, StoreError};
 use chrono::{DateTime, Duration, FixedOffset, TimeZone, Utc};
 use knotter_core::domain::TagName;
 use knotter_core::filter::{ContactFilter, FilterExpr};
-use knotter_core::rules::DueSelector;
+use knotter_core::rules::{validate_soon_days, DueSelector};
 use rusqlite::types::Value;
 
 #[derive(Debug, Default, Clone)]
@@ -58,6 +58,7 @@ impl ContactQuery {
         soon_days: i64,
         local_offset: FixedOffset,
     ) -> Result<SqlQuery> {
+        let soon_days = validate_soon_days(soon_days).map_err(StoreError::Core)?;
         let mut clauses: Vec<String> = Vec::new();
         let mut params: Vec<Value> = Vec::new();
 
@@ -81,7 +82,7 @@ impl ContactQuery {
             params.push(Value::from(tag.as_str().to_string()));
         }
 
-        let bounds = day_bounds(now_utc, soon_days, local_offset);
+        let bounds = due_bounds(now_utc, soon_days, local_offset);
         if let Some(selector) = self.due {
             match selector {
                 DueSelector::Overdue => {
@@ -141,13 +142,13 @@ impl ContactQuery {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct DueBounds {
-    start_of_today: i64,
-    start_of_tomorrow: i64,
-    soon_end: i64,
+pub struct DueBounds {
+    pub start_of_today: i64,
+    pub start_of_tomorrow: i64,
+    pub soon_end: i64,
 }
 
-fn day_bounds(now_utc: i64, soon_days: i64, local_offset: FixedOffset) -> DueBounds {
+pub fn due_bounds(now_utc: i64, soon_days: i64, local_offset: FixedOffset) -> DueBounds {
     let now = DateTime::<Utc>::from_timestamp(now_utc, 0).expect("valid timestamp");
     let local = now.with_timezone(&local_offset);
     let local_date = local.date_naive();

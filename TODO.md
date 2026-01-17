@@ -70,7 +70,7 @@ knotter is “MVP done” when all are true:
 - [x] Pick TUI crates:
   - [x] Ratatui + Crossterm
 - [ ] Create feature flags:
-  - [ ] `desktop-notify` (enables desktop notification backend)
+  - [x] `desktop-notify` (enables desktop notification backend)
   - [ ] `dav-sync` (future)
 
 ### A3. Tooling and CI
@@ -320,10 +320,10 @@ Touchpoints:
 - [x] `knotter clear-schedule <id>`
 
 Reminders:
-- [ ] `knotter remind [--soon-days N] [--notify] [--json]`
-  - [ ] groups overdue/today/soon
-  - [ ] stdout output stable for cron/systemd usage
-  - [ ] if `--notify` and feature `desktop-notify` enabled, trigger desktop notification backend; otherwise fall back to stdout
+- [x] `knotter remind [--soon-days N] [--notify] [--json]`
+  - [x] groups overdue/today/soon
+  - [x] stdout output stable for cron/systemd usage
+  - [x] if `--notify` and feature `desktop-notify` enabled, trigger desktop notification backend; otherwise fall back to stdout
 
 TUI launcher:
 - [ ] `knotter tui`
@@ -347,7 +347,7 @@ Import/export:
 - [x] Test flows:
   - [x] add contact → list includes it
   - [x] tag add → filter `#tag` finds it
-  - [ ] schedule → remind includes it in correct bucket
+  - [x] schedule → remind includes it in correct bucket
 
 **DoD (Milestone D)**  
 CLI is fully usable without TUI; reminders and export are operational.
@@ -522,28 +522,28 @@ Import/export works reliably with predictable mappings and test coverage.
 ## 7) Milestone G — Reminders + notification backends
 
 ### G1. Reminder computation (core + store integration)
-- [ ] Implement reminder grouping:
-  - [ ] overdue
-  - [ ] today
-  - [ ] soon (N days)
-- [ ] Ensure the same logic powers CLI and TUI badges
+- [x] Implement reminder grouping:
+  - [x] overdue
+  - [x] today
+  - [x] soon (N days)
+- [x] Ensure the same logic powers CLI and TUI badges
 
 ### G2. Notifier abstraction
-- [ ] Define a small notifier interface in a non-core crate (or CLI/TUI module):
-  - [ ] `send(title, body) -> Result<()>`
-- [ ] Implement stdout backend (always available)
-- [ ] Implement desktop backend behind `desktop-notify` feature:
-  - [ ] if it fails, fallback to stdout
-- [ ] Wire `knotter remind --notify` to notifier selection
+- [x] Define a small notifier interface in a non-core crate (or CLI/TUI module):
+  - [x] `send(title, body) -> Result<()>`
+- [x] Implement stdout backend (always available)
+- [x] Implement desktop backend behind `desktop-notify` feature:
+  - [x] if it fails, fallback to stdout
+- [x] Wire `knotter remind --notify` to notifier selection
 - [ ] Add config support (optional MVP):
   - [ ] default notify on/off
   - [ ] default soon window days
 
 ### G3. Scheduling documentation
-- [ ] Write `docs/scheduling.md`:
-  - [ ] cron example (runs `knotter remind --notify`)
-  - [ ] systemd user timer example
-  - [ ] note about running without desktop notifications (stdout mode)
+- [x] Write `docs/scheduling.md`:
+  - [x] cron example (runs `knotter remind --notify`)
+  - [x] systemd user timer example
+  - [x] note about running without desktop notifications (stdout mode)
 
 **DoD (Milestone G)**  
 Daily reminders can be scheduled externally; notifications are optional and safe.

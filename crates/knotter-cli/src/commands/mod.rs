@@ -4,6 +4,7 @@ use serde::Serialize;
 
 pub mod contacts;
 pub mod interactions;
+pub mod remind;
 pub mod schedule;
 pub mod tags;
 

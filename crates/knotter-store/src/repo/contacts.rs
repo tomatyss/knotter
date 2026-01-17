@@ -1,7 +1,8 @@
 use crate::error::{Result, StoreError};
-use crate::query::ContactQuery;
+use crate::query::{due_bounds, ContactQuery};
 use chrono::FixedOffset;
 use knotter_core::domain::{Contact, ContactId};
+use knotter_core::rules::validate_soon_days;
 use rusqlite::{params, params_from_iter, Connection};
 use std::str::FromStr;
 
@@ -163,6 +164,42 @@ impl<'a> ContactsRepo<'a> {
         let compiled = query.to_sql(now_utc, soon_days, local_offset)?;
         let mut stmt = self.conn.prepare(&compiled.sql)?;
         let mut rows = stmt.query(params_from_iter(compiled.params))?;
+        let mut contacts = Vec::new();
+        while let Some(row) = rows.next()? {
+            contacts.push(contact_from_row(row)?);
+        }
+        Ok(contacts)
+    }
+
+    pub fn list_due_contacts(
+        &self,
+        now_utc: i64,
+        soon_days: i64,
+        local_offset: FixedOffset,
+    ) -> Result<Vec<Contact>> {
+        let soon_days = validate_soon_days(soon_days).map_err(StoreError::Core)?;
+        let bounds = due_bounds(now_utc, soon_days, local_offset);
+        let mut stmt = self.conn.prepare(
+            "SELECT id, display_name, email, phone, handle, timezone, next_touchpoint_at, cadence_days, created_at, updated_at, archived_at
+             FROM contacts
+             WHERE archived_at IS NULL
+               AND next_touchpoint_at IS NOT NULL
+               AND next_touchpoint_at < ?1
+             ORDER BY CASE
+                WHEN next_touchpoint_at < ?2 THEN 0
+                WHEN next_touchpoint_at >= ?3 AND next_touchpoint_at < ?4 THEN 1
+                WHEN next_touchpoint_at >= ?4 AND next_touchpoint_at < ?5 THEN 2
+                ELSE 3
+             END,
+             display_name COLLATE NOCASE ASC;",
+        )?;
+        let mut rows = stmt.query(params![
+            bounds.soon_end,
+            now_utc,
+            bounds.start_of_today,
+            bounds.start_of_tomorrow,
+            bounds.soon_end
+        ])?;
         let mut contacts = Vec::new();
         while let Some(row) = rows.next()? {
             contacts.push(contact_from_row(row)?);

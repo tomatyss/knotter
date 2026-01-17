@@ -24,6 +24,14 @@ Each item matches `ContactListItemDto`:
 - `next_touchpoint_at` (number|null, unix seconds UTC)
 - `tags` (array of strings)
 
+### `knotter remind --json`
+
+Output: JSON object matching `ReminderOutputDto`:
+
+- `overdue` (array of `ContactListItemDto`)
+- `today` (array of `ContactListItemDto`)
+- `soon` (array of `ContactListItemDto`)
+
 ### `knotter show <id> --json`
 
 Output: JSON object matching `ContactDetailDto`:
