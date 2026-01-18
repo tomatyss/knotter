@@ -72,6 +72,25 @@ JSON output includes the created/updated entity:
 
 Note: This output shape may be expanded in the future, but existing fields are stable.
 
+### `knotter import vcf --json`
+
+Output: JSON object matching `ImportReport`:
+
+- `created` (number)
+- `updated` (number)
+- `skipped` (number)
+- `warnings` (array of strings)
+
+### `knotter export vcf/ics --json`
+
+Note: `--json` requires `--out` to avoid mixing JSON with exported data.
+
+Output: JSON object:
+
+- `format` (string: `vcf` or `ics`)
+- `count` (number of exported entries)
+- `output` (string path)
+
 ## Exit codes (selected)
 
 - `3` for invalid filter syntax (e.g., `due:later`).

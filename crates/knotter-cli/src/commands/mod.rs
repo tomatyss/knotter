@@ -6,6 +6,7 @@ pub mod contacts;
 pub mod interactions;
 pub mod remind;
 pub mod schedule;
+pub mod sync;
 pub mod tags;
 
 pub const DEFAULT_SOON_DAYS: i64 = 7;

@@ -90,6 +90,22 @@ impl<'a> ContactsRepo<'a> {
         }
     }
 
+    pub fn list_by_email(&self, email: &str) -> Result<Vec<Contact>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, display_name, email, phone, handle, timezone, next_touchpoint_at, cadence_days, created_at, updated_at, archived_at
+             FROM contacts
+             WHERE email IS NOT NULL
+               AND email = ?1 COLLATE NOCASE
+             ORDER BY (archived_at IS NOT NULL) ASC, updated_at DESC;",
+        )?;
+        let mut rows = stmt.query([email])?;
+        let mut contacts = Vec::new();
+        while let Some(row) = rows.next()? {
+            contacts.push(contact_from_row(row)?);
+        }
+        Ok(contacts)
+    }
+
     pub fn update(&self, now_utc: i64, id: ContactId, update: ContactUpdate) -> Result<Contact> {
         let mut contact = self
             .get(id)?

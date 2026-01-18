@@ -112,3 +112,111 @@ fn cli_remind_notify_json_fails_without_desktop_feature() {
     let soon = parsed["soon"].as_array().expect("soon array");
     assert_eq!(soon.len(), 1);
 }
+
+#[test]
+fn cli_import_vcf_creates_contact() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let vcf_path = temp.path().join("contacts.vcf");
+
+    let vcf = "BEGIN:VCARD\nVERSION:3.0\nFN:Grace Hopper\nEMAIL:grace@example.com\nCATEGORIES:friends\nEND:VCARD\n";
+    std::fs::write(&vcf_path, vcf).expect("write vcf");
+
+    run_cmd(
+        &db_path,
+        &["import", "vcf", vcf_path.to_str().expect("path")],
+    );
+
+    let list = run_cmd_json(&db_path, &["list"]);
+    let items = list.as_array().expect("array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["display_name"], "Grace Hopper");
+}
+
+#[test]
+fn cli_export_vcf_writes_file() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let out_path = temp.path().join("export.vcf");
+
+    run_cmd(&db_path, &["add-contact", "--name", "Ada Lovelace"]);
+
+    run_cmd(
+        &db_path,
+        &["export", "vcf", "--out", out_path.to_str().expect("path")],
+    );
+
+    let contents = std::fs::read_to_string(&out_path).expect("read vcf");
+    assert!(contents.contains("BEGIN:VCARD"));
+    assert!(contents.contains("FN:Ada Lovelace"));
+}
+
+#[test]
+fn cli_export_ics_writes_file() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let out_path = temp.path().join("export.ics");
+
+    run_cmd(&db_path, &["add-contact", "--name", "Ada Lovelace"]);
+    let list = run_cmd_json(&db_path, &["list"]);
+    let items = list.as_array().expect("array");
+    let id = items[0]["id"].as_str().expect("id").to_string();
+    run_cmd(&db_path, &["schedule", &id, "--at", "2030-01-01"]);
+
+    run_cmd(
+        &db_path,
+        &["export", "ics", "--out", out_path.to_str().expect("path")],
+    );
+
+    let contents = std::fs::read_to_string(&out_path).expect("read ics");
+    assert!(contents.contains("BEGIN:VEVENT"));
+    assert!(contents.contains("SUMMARY:Reach out to Ada Lovelace"));
+}
+
+#[test]
+fn cli_import_vcf_skips_duplicate_email() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let vcf_path = temp.path().join("contacts.vcf");
+
+    run_cmd(
+        &db_path,
+        &[
+            "add-contact",
+            "--name",
+            "First",
+            "--email",
+            "dup@example.com",
+        ],
+    );
+    run_cmd(
+        &db_path,
+        &[
+            "add-contact",
+            "--name",
+            "Second",
+            "--email",
+            "dup@example.com",
+        ],
+    );
+
+    let vcf = "BEGIN:VCARD\nVERSION:3.0\nFN:Updated Name\nEMAIL:dup@example.com\nEND:VCARD\n";
+    std::fs::write(&vcf_path, vcf).expect("write vcf");
+
+    let report = run_cmd_json(
+        &db_path,
+        &["import", "vcf", vcf_path.to_str().expect("path")],
+    );
+    assert_eq!(report["updated"], 0);
+    assert_eq!(report["skipped"], 1);
+
+    let list = run_cmd_json(&db_path, &["list"]);
+    let names: Vec<String> = list
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|item| item["display_name"].as_str().expect("name").to_string())
+        .collect();
+    assert!(names.contains(&"First".to_string()));
+    assert!(names.contains(&"Second".to_string()));
+}

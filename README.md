@@ -2,7 +2,7 @@
 
 knotter is a terminal-first personal CRM and friendship tracker. It is an offline-first Rust app with a CLI and TUI, backed by a portable SQLite database, plus vCard/iCalendar import/export.
 
-Status: scaffolding in progress.
+Status: CLI MVP in progress (import/export done; TUI ongoing).
 
 ## Quickstart (dev)
 
@@ -10,6 +10,12 @@ Status: scaffolding in progress.
 - Test: `cargo test`
 - Format: `cargo fmt`
 - Lint: `cargo clippy --all-targets --all-features -D warnings`
+
+## Import/export (CLI)
+
+- Import vCard: `knotter import vcf <file>`
+- Export vCard: `knotter export vcf --out <file>`
+- Export touchpoints (ICS): `knotter export ics --out <file>`
 
 ## Data location
 

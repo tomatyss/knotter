@@ -8,7 +8,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use crate::commands::{contacts, interactions, remind, schedule, tags, Context};
+use crate::commands::{contacts, interactions, remind, schedule, sync, tags, Context};
 use knotter_core::{filter::FilterParseError, CoreError};
 use knotter_store::error::{StoreError, StoreErrorKind};
 use knotter_store::{paths, Store};
@@ -46,6 +46,10 @@ enum Command {
     #[command(name = "clear-schedule")]
     ClearSchedule(schedule::ClearScheduleArgs),
     Remind(remind::RemindArgs),
+    #[command(subcommand)]
+    Import(sync::ImportCommand),
+    #[command(subcommand)]
+    Export(sync::ExportCommand),
 }
 
 fn main() -> ExitCode {
@@ -107,6 +111,13 @@ fn run() -> Result<()> {
         Command::Schedule(args) => schedule::schedule_contact(&ctx, args),
         Command::ClearSchedule(args) => schedule::clear_schedule(&ctx, args),
         Command::Remind(args) => remind::remind(&ctx, args),
+        Command::Import(cmd) => match cmd {
+            sync::ImportCommand::Vcf(args) => sync::import_vcf(&ctx, args),
+        },
+        Command::Export(cmd) => match cmd {
+            sync::ExportCommand::Vcf(args) => sync::export_vcf(&ctx, args),
+            sync::ExportCommand::Ics(args) => sync::export_ics(&ctx, args),
+        },
     }
 }
 

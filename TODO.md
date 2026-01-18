@@ -329,9 +329,9 @@ TUI launcher:
 - [ ] `knotter tui`
 
 Import/export:
-- [ ] `knotter import vcf <file>`
-- [ ] `knotter export vcf [--out <file>]`
-- [ ] `knotter export ics [--out <file>] [--window-days N]`
+- [x] `knotter import vcf <file>`
+- [x] `knotter export vcf [--out <file>]`
+- [x] `knotter export ics [--out <file>] [--window-days N]`
 
 ### D3. Output format spec
 - [x] Write `docs/cli-output.md` (short but explicit):
@@ -462,57 +462,57 @@ TUI provides the same core workflows as CLI (at least add note, tags, schedule, 
 ## 6) Milestone F — Import/export adapters (knotter-sync)
 
 ### F1. vCard (.vcf) import
-- [ ] Implement parser integration with chosen crate
-- [ ] Mapping rules:
-  - [ ] FN → display_name (required)
-  - [ ] EMAIL (first) → email
-  - [ ] TEL (first) → phone
-  - [ ] CATEGORIES → tags
-- [ ] Decide dedupe policy (document + implement):
-  - [ ] MVP recommended: if email matches existing contact, update; else create new
-  - [ ] if missing email, do not dedupe (create new)
-- [ ] Import report:
-  - [ ] created
-  - [ ] updated
-  - [ ] skipped
-  - [ ] warnings (missing FN, invalid tags, etc.)
+- [x] Implement parser integration with chosen crate
+- [x] Mapping rules:
+  - [x] FN → display_name (required)
+  - [x] EMAIL (first) → email
+  - [x] TEL (first) → phone
+  - [x] CATEGORIES → tags
+- [x] Decide dedupe policy (document + implement):
+  - [x] MVP recommended: if email matches existing contact, update; else create new
+  - [x] if missing email, do not dedupe (create new)
+- [x] Import report:
+  - [x] created
+  - [x] updated
+  - [x] skipped
+  - [x] warnings (missing FN, invalid tags, etc.)
 
 ### F2. vCard export
-- [ ] Export all contacts as vCards:
-  - [ ] include FN, EMAIL, TEL
-  - [ ] include CATEGORIES from tags
-- [ ] Optional knotter metadata via X- properties (document clearly):
-  - [ ] `X-KNOTTER-NEXT-TOUCHPOINT`
-  - [ ] `X-KNOTTER-CADENCE-DAYS`
-- [ ] Ensure exported file is parseable by common apps (keep it conservative)
+- [x] Export all contacts as vCards:
+  - [x] include FN, EMAIL, TEL
+  - [x] include CATEGORIES from tags
+- [x] Optional knotter metadata via X- properties (document clearly):
+  - [x] `X-KNOTTER-NEXT-TOUCHPOINT`
+  - [x] `X-KNOTTER-CADENCE-DAYS`
+- [x] Ensure exported file is parseable by common apps (keep it conservative)
 
 ### F3. iCalendar (.ics) export for touchpoints
-- [ ] Export one event per contact with `next_touchpoint_at`
-- [ ] Stable UID generation:
-  - [ ] deterministic from contact UUID (so repeated exports update rather than duplicate)
-- [ ] Event fields:
-  - [ ] SUMMARY: `Reach out to {name}`
-  - [ ] DTSTART: from next_touchpoint_at (choose UTC for simplicity)
-  - [ ] DESCRIPTION: tags and optional last-interaction snippet
-- [ ] Export options:
-  - [ ] `--window-days` limits events
-  - [ ] due-only mode optional
+- [x] Export one event per contact with `next_touchpoint_at`
+- [x] Stable UID generation:
+  - [x] deterministic from contact UUID (so repeated exports update rather than duplicate)
+- [x] Event fields:
+  - [x] SUMMARY: `Reach out to {name}`
+  - [x] DTSTART: from next_touchpoint_at (choose UTC for simplicity)
+  - [x] DESCRIPTION: tags and optional last-interaction snippet
+- [x] Export options:
+  - [x] `--window-days` limits events
+  - [x] due-only mode optional
 
 ### F4. Sync tests
-- [ ] vCard parse tests:
-  - [ ] FN missing -> warning + skip
-  - [ ] categories -> tags normalized
-- [ ] vCard export tests:
-  - [ ] exported file parses back and contains expected fields
-- [ ] ICS export tests:
-  - [ ] UID stable
-  - [ ] DTSTART correct for known timestamps
+- [x] vCard parse tests:
+  - [x] FN missing -> warning + skip
+  - [x] categories -> tags normalized
+- [x] vCard export tests:
+  - [x] exported file parses back and contains expected fields
+- [x] ICS export tests:
+  - [x] UID stable
+  - [x] DTSTART correct for known timestamps
 
 ### F5. Docs
-- [ ] Write `docs/import-export.md`:
-  - [ ] what fields knotter imports/exports
-  - [ ] what may be lost when round-tripping via other apps
-  - [ ] how UID stability works for ICS
+- [x] Write `docs/import-export.md`:
+  - [x] what fields knotter imports/exports
+  - [x] what may be lost when round-tripping via other apps
+  - [x] how UID stability works for ICS
 
 **DoD (Milestone F)**  
 Import/export works reliably with predictable mappings and test coverage.

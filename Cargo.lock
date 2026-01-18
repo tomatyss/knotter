@@ -800,7 +800,9 @@ dependencies = [
 name = "knotter-sync"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "knotter-core",
+ "serde",
  "thiserror 1.0.69",
 ]
 
