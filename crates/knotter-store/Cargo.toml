@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 knotter-core = { path = "../knotter-core" }
-dirs = "5"
+dirs = "6"
 chrono = "0.4"
 rusqlite = { version = "0.31", features = ["bundled", "backup"] }
 thiserror = "1"
