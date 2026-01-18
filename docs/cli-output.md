@@ -91,6 +91,29 @@ Output: JSON object:
 - `count` (number of exported entries)
 - `output` (string path)
 
+### `knotter export json`
+
+If `--out` is omitted, the snapshot JSON is written to stdout (regardless of `--json`).
+If `--out` is provided, stdout contains a human message by default, or a JSON report
+when `--json` is set (same shape as other export commands).
+
+Snapshot JSON output:
+
+- `metadata` object:
+  - `exported_at` (number, unix seconds UTC)
+  - `app_version` (string)
+  - `schema_version` (number)
+  - `format_version` (number)
+- `contacts` array of objects:
+  - contact fields: `id`, `display_name`, `email`, `phone`, `handle`, `timezone`,
+    `next_touchpoint_at`, `cadence_days`, `created_at`, `updated_at`, `archived_at`
+  - `tags` (array of strings)
+  - `interactions` (array of objects):
+    - `id`, `occurred_at`, `created_at`, `kind`, `note`, `follow_up_at`
+    - ordered by `occurred_at` descending
+
+Archived contacts are included by default. Use `--exclude-archived` to omit them.
+
 ### `knotter backup --json`
 
 If `--out` is omitted, the backup is written to the XDG data dir using a

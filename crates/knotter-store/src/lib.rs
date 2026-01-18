@@ -5,6 +5,7 @@ pub mod migrate;
 pub mod paths;
 pub mod query;
 pub mod repo;
+pub(crate) mod temp_table;
 
 use crate::error::Result;
 use rusqlite::Connection;
@@ -27,6 +28,10 @@ impl Store {
 
     pub fn migrate(&self) -> Result<()> {
         migrate::run_migrations(&self.conn)
+    }
+
+    pub fn schema_version(&self) -> Result<i64> {
+        migrate::schema_version(&self.conn)
     }
 
     pub fn backup_to(&self, path: &Path) -> Result<()> {

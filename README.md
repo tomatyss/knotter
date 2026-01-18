@@ -74,6 +74,7 @@ Common keys (full list in `docs/KEYBINDINGS.md`):
 - Import vCard: `knotter import vcf <file>`
 - Export vCard: `knotter export vcf --out <file>`
 - Export touchpoints (ICS): `knotter export ics --out <file>`
+- Export full JSON snapshot: `knotter export json --out <file>` (add `--exclude-archived` to omit archived)
 
 See `docs/import-export.md` for mapping details.
 
@@ -114,5 +115,5 @@ knotter backup --out /path/to/backup.sqlite3
 - `docs/DB_SCHEMA.md` for the authoritative schema
 - `docs/cli-output.md` for stable JSON output
 - `docs/KEYBINDINGS.md` for TUI keys
-- `docs/import-export.md` for vCard/ICS behavior
+- `docs/import-export.md` for vCard/ICS/JSON behavior
 - `docs/scheduling.md` for reminder scheduling

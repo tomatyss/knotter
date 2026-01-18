@@ -57,6 +57,25 @@ Archived contacts are excluded from exports.
 - Only `FN`, `EMAIL`, `TEL`, and `CATEGORIES` are exported; other vCard fields are ignored.
 - `X-KNOTTER-*` fields are specific to knotter and may be dropped by other apps.
 
+## JSON export (full snapshot)
+
+Command:
+
+```
+knotter export json [--out <file>] [--exclude-archived]
+```
+
+### Output
+
+- JSON snapshot containing metadata and all contacts.
+- Includes tags and full interaction history per contact.
+- Interactions are ordered by most recent first.
+
+### Notes
+
+- Archived contacts are included by default; `--exclude-archived` omits them.
+- `metadata.format_version` can be used to handle future schema changes.
+
 ## iCalendar export (touchpoints)
 
 Command:

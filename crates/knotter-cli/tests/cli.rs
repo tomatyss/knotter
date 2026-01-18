@@ -1,8 +1,10 @@
 use assert_cmd::cargo::cargo_bin_cmd;
 use knotter_core::rules::MAX_SOON_DAYS;
+use knotter_store::repo::ContactUpdate;
 use knotter_store::Store;
 use serde_json::Value;
 use std::path::Path;
+use std::str::FromStr;
 use tempfile::TempDir;
 
 fn run_cmd(db_path: &Path, args: &[&str]) -> String {
@@ -172,6 +174,130 @@ fn cli_export_ics_writes_file() {
     let contents = std::fs::read_to_string(&out_path).expect("read ics");
     assert!(contents.contains("BEGIN:VEVENT"));
     assert!(contents.contains("SUMMARY:Reach out to Ada Lovelace"));
+}
+
+#[test]
+fn cli_export_json_outputs_snapshot() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+
+    run_cmd(&db_path, &["add-contact", "--name", "Ada Lovelace"]);
+    let list = run_cmd_json(&db_path, &["list"]);
+    let items = list.as_array().expect("array");
+    let id = items[0]["id"].as_str().expect("id").to_string();
+
+    run_cmd(&db_path, &["tag", "add", &id, "friend"]);
+    run_cmd(
+        &db_path,
+        &[
+            "add-note",
+            &id,
+            "--kind",
+            "call",
+            "--note",
+            "hello",
+            "--when",
+            "2030-01-02",
+        ],
+    );
+
+    let output = run_cmd_output(&db_path, &["export", "json"]);
+    assert!(output.status.success(), "command failed: {:?}", output);
+    let snapshot: Value = serde_json::from_slice(&output.stdout).expect("parse json");
+
+    assert!(snapshot["metadata"]["exported_at"].is_number());
+    assert_eq!(snapshot["metadata"]["format_version"], 1);
+
+    let contacts = snapshot["contacts"].as_array().expect("contacts array");
+    assert_eq!(contacts.len(), 1);
+    assert_eq!(contacts[0]["display_name"], "Ada Lovelace");
+
+    let tags = contacts[0]["tags"].as_array().expect("tags array");
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0], "friend");
+
+    let interactions = contacts[0]["interactions"]
+        .as_array()
+        .expect("interactions array");
+    assert_eq!(interactions.len(), 1);
+    assert_eq!(interactions[0]["kind"], "call");
+    assert_eq!(interactions[0]["note"], "hello");
+}
+
+#[test]
+fn cli_export_json_excludes_archived_when_requested() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+
+    run_cmd(&db_path, &["add-contact", "--name", "Active"]);
+    run_cmd(&db_path, &["add-contact", "--name", "Archived"]);
+
+    let list = run_cmd_json(&db_path, &["list"]);
+    let items = list.as_array().expect("array");
+    let mut active_id = None;
+    let mut archived_id = None;
+    for item in items {
+        match item["display_name"].as_str().expect("name") {
+            "Active" => active_id = item["id"].as_str().map(|id| id.to_string()),
+            "Archived" => archived_id = item["id"].as_str().map(|id| id.to_string()),
+            _ => {}
+        }
+    }
+    let active_id = active_id.expect("active id");
+    let archived_id = archived_id.expect("archived id");
+
+    let store = Store::open(&db_path).expect("open store");
+    let now = 1_700_000_000;
+    store
+        .contacts()
+        .update(
+            now,
+            knotter_core::domain::ContactId::from_str(&archived_id).expect("contact id"),
+            ContactUpdate {
+                archived_at: Some(Some(now)),
+                ..Default::default()
+            },
+        )
+        .expect("archive contact");
+
+    let output = run_cmd_output(&db_path, &["export", "json", "--exclude-archived"]);
+    assert!(output.status.success(), "command failed: {:?}", output);
+    let snapshot: Value = serde_json::from_slice(&output.stdout).expect("parse json");
+    let contacts = snapshot["contacts"].as_array().expect("contacts array");
+    assert_eq!(contacts.len(), 1);
+    assert_eq!(contacts[0]["id"], active_id);
+}
+
+#[test]
+fn cli_export_json_with_out_and_json_emits_report() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let out_path = temp.path().join("export.json");
+
+    run_cmd(&db_path, &["add-contact", "--name", "Ada Lovelace"]);
+
+    let output = run_cmd_output(
+        &db_path,
+        &[
+            "--json",
+            "export",
+            "json",
+            "--out",
+            out_path.to_str().expect("path"),
+        ],
+    );
+    assert!(output.status.success(), "command failed: {:?}", output);
+
+    let report: Value = serde_json::from_slice(&output.stdout).expect("parse json report");
+    assert_eq!(report["format"], "json");
+    assert_eq!(report["count"], 1);
+    assert_eq!(report["output"], out_path.to_str().expect("path"));
+
+    let snapshot: Value = serde_json::from_slice(&std::fs::read(&out_path).expect("read snapshot"))
+        .expect("parse snapshot");
+    let contacts = snapshot["contacts"].as_array().expect("contacts array");
+    assert_eq!(contacts.len(), 1);
+    assert_eq!(contacts[0]["display_name"], "Ada Lovelace");
 }
 
 #[test]

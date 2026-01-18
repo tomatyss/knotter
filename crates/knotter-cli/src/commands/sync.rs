@@ -1,8 +1,11 @@
 use crate::commands::{print_json, Context};
-use crate::util::now_utc;
+use crate::util::{format_interaction_kind, now_utc};
 use anyhow::{anyhow, Context as _, Result};
 use clap::{Args, Subcommand};
 use knotter_core::domain::{ContactId, TagName};
+use knotter_core::dto::{
+    ExportContactDto, ExportInteractionDto, ExportMetadataDto, ExportSnapshotDto,
+};
 use knotter_store::error::StoreErrorKind;
 use knotter_store::repo::contacts::{ContactNew, ContactUpdate};
 use knotter_sync::ics::{self, IcsExportOptions};
@@ -25,6 +28,7 @@ pub struct ImportVcfArgs {
 pub enum ExportCommand {
     Vcf(ExportVcfArgs),
     Ics(ExportIcsArgs),
+    Json(ExportJsonArgs),
 }
 
 #[derive(Debug, Args)]
@@ -39,6 +43,14 @@ pub struct ExportIcsArgs {
     pub out: Option<PathBuf>,
     #[arg(long)]
     pub window_days: Option<i64>,
+}
+
+#[derive(Debug, Args)]
+pub struct ExportJsonArgs {
+    #[arg(long)]
+    pub out: Option<PathBuf>,
+    #[arg(long)]
+    pub exclude_archived: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -104,7 +116,7 @@ pub fn import_vcf(ctx: &Context<'_>, args: ImportVcfArgs) -> Result<()> {
 }
 
 pub fn export_vcf(ctx: &Context<'_>, args: ExportVcfArgs) -> Result<()> {
-    let contacts = load_export_contacts(ctx)?;
+    let contacts = load_export_contacts(ctx, false)?;
     let tags = load_tags(ctx, &contacts)?;
     let data = vcf::export_vcf(&contacts, &tags)?;
     write_export(
@@ -126,7 +138,7 @@ pub fn export_ics(ctx: &Context<'_>, args: ExportIcsArgs) -> Result<()> {
         }
     }
 
-    let contacts = load_export_contacts(ctx)?;
+    let contacts = load_export_contacts(ctx, false)?;
     let tags = load_tags(ctx, &contacts)?;
     let export = ics::export_ics(
         &contacts,
@@ -149,14 +161,81 @@ pub fn export_ics(ctx: &Context<'_>, args: ExportIcsArgs) -> Result<()> {
     )
 }
 
-fn load_export_contacts(ctx: &Context<'_>) -> Result<Vec<knotter_core::domain::Contact>> {
-    let contacts = ctx
-        .store
-        .contacts()
-        .list_all()?
+pub fn export_json(ctx: &Context<'_>, args: ExportJsonArgs) -> Result<()> {
+    let include_archived = !args.exclude_archived;
+    let contacts = load_export_contacts(ctx, include_archived)?;
+    let ids: Vec<ContactId> = contacts.iter().map(|contact| contact.id).collect();
+    let mut tags = load_tags(ctx, &contacts)?;
+    let mut interactions = ctx.store.interactions().list_for_contacts(&ids)?;
+
+    let export_contacts: Vec<ExportContactDto> = contacts
         .into_iter()
-        .filter(|contact| contact.archived_at.is_none())
+        .map(|contact| {
+            let tags = tags.remove(&contact.id).unwrap_or_default();
+            let interactions = interactions.remove(&contact.id).unwrap_or_default();
+            let interactions = interactions
+                .into_iter()
+                .map(|interaction| ExportInteractionDto {
+                    id: interaction.id,
+                    occurred_at: interaction.occurred_at,
+                    created_at: interaction.created_at,
+                    kind: format_interaction_kind(&interaction.kind),
+                    note: interaction.note,
+                    follow_up_at: interaction.follow_up_at,
+                })
+                .collect();
+
+            ExportContactDto {
+                id: contact.id,
+                display_name: contact.display_name,
+                email: contact.email,
+                phone: contact.phone,
+                handle: contact.handle,
+                timezone: contact.timezone,
+                next_touchpoint_at: contact.next_touchpoint_at,
+                cadence_days: contact.cadence_days,
+                created_at: contact.created_at,
+                updated_at: contact.updated_at,
+                archived_at: contact.archived_at,
+                tags,
+                interactions,
+            }
+        })
         .collect();
+
+    let metadata = ExportMetadataDto {
+        exported_at: now_utc(),
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        schema_version: ctx.store.schema_version()?,
+        format_version: 1,
+    };
+
+    let snapshot = ExportSnapshotDto {
+        metadata,
+        contacts: export_contacts,
+    };
+
+    let data = serde_json::to_string_pretty(&snapshot)?;
+    write_json_export(
+        ctx,
+        ExportReport {
+            format: "json".to_string(),
+            count: snapshot.contacts.len(),
+            output: args.out.as_ref().map(|path| path.display().to_string()),
+        },
+        args.out.as_deref(),
+        &data,
+    )
+}
+
+fn load_export_contacts(
+    ctx: &Context<'_>,
+    include_archived: bool,
+) -> Result<Vec<knotter_core::domain::Contact>> {
+    let mut contacts = ctx.store.contacts().list_all()?;
+    if !include_archived {
+        contacts.retain(|contact| contact.archived_at.is_none());
+    }
     Ok(contacts)
 }
 
@@ -182,6 +261,36 @@ fn write_export(
         return Err(anyhow!("--json requires --out for export commands"));
     }
 
+    match out {
+        Some(path) => {
+            if let Some(parent) = path.parent() {
+                if !parent.as_os_str().is_empty() {
+                    fs::create_dir_all(parent)
+                        .with_context(|| format!("create export directory {}", parent.display()))?;
+                }
+            }
+            fs::write(path, data)
+                .with_context(|| format!("write export file {}", path.display()))?;
+            if ctx.json {
+                print_json(&report)?;
+            } else {
+                println!("Exported {} contacts to {}", report.count, path.display());
+            }
+            Ok(())
+        }
+        None => {
+            print!("{}", data);
+            Ok(())
+        }
+    }
+}
+
+fn write_json_export(
+    ctx: &Context<'_>,
+    report: ExportReport,
+    out: Option<&Path>,
+    data: &str,
+) -> Result<()> {
     match out {
         Some(path) => {
             if let Some(parent) = path.parent() {

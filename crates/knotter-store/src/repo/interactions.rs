@@ -1,7 +1,9 @@
 use crate::error::{Result, StoreError};
+use crate::temp_table::TempContactIdTable;
 use knotter_core::domain::{ContactId, Interaction, InteractionId, InteractionKind};
 use knotter_core::rules::next_touchpoint_after_touch;
 use rusqlite::{params, Connection, OptionalExtension};
+use std::collections::HashMap;
 use std::str::FromStr;
 
 #[derive(Debug, Clone)]
@@ -71,6 +73,45 @@ impl<'a> InteractionsRepo<'a> {
             items.push(interaction_from_row(row)?);
         }
         Ok(items)
+    }
+
+    pub fn list_for_contacts(
+        &self,
+        contact_ids: &[ContactId],
+    ) -> Result<HashMap<ContactId, Vec<Interaction>>> {
+        let mut map: HashMap<ContactId, Vec<Interaction>> = HashMap::new();
+        if contact_ids.is_empty() {
+            return Ok(map);
+        }
+
+        let temp_table = TempContactIdTable::create(self.conn, contact_ids)?;
+        let temp_table_name = temp_table.name();
+
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT interactions.id,
+                    interactions.contact_id,
+                    interactions.occurred_at,
+                    interactions.created_at,
+                    interactions.kind,
+                    interactions.note,
+                    interactions.follow_up_at
+             FROM interactions
+             INNER JOIN {temp_table_name} tmp ON tmp.id = interactions.contact_id
+             ORDER BY interactions.contact_id ASC,
+                      interactions.occurred_at DESC,
+                      interactions.created_at DESC,
+                      interactions.id ASC;"
+        ))?;
+
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            let interaction = interaction_from_row(row)?;
+            map.entry(interaction.contact_id)
+                .or_default()
+                .push(interaction);
+        }
+
+        Ok(map)
     }
 
     pub fn touch_contact(

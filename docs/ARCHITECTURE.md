@@ -459,6 +459,17 @@ Export options:
 * export window (e.g. next 60 days)
 * export due-only
 
+### 7.3 JSON snapshot export
+
+knotter also supports a JSON snapshot export for portability and backups.
+
+Snapshot rules:
+
+* include metadata (export timestamp, app version, schema version, format version)
+* include all contacts with tags and full interaction history
+* interactions are ordered with most recent first
+* archived contacts are included by default with an `--exclude-archived` escape hatch
+
 Import of ICS back into knotter is post-MVP.
 
 ---

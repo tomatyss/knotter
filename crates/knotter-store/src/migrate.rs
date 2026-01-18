@@ -29,6 +29,14 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+pub fn schema_version(conn: &Connection) -> Result<i64> {
+    let version: i64 =
+        conn.query_row("SELECT version FROM knotter_schema LIMIT 1;", [], |row| {
+            row.get(0)
+        })?;
+    Ok(version)
+}
+
 fn ensure_schema_table(tx: &Transaction<'_>) -> Result<()> {
     tx.execute_batch("CREATE TABLE IF NOT EXISTS knotter_schema (version INTEGER NOT NULL);")?;
 

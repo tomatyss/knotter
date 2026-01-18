@@ -103,6 +103,7 @@ fn run() -> Result<()> {
         Command::Export(cmd) => match cmd {
             sync::ExportCommand::Vcf(args) => sync::export_vcf(&ctx, args),
             sync::ExportCommand::Ics(args) => sync::export_ics(&ctx, args),
+            sync::ExportCommand::Json(args) => sync::export_json(&ctx, args),
         },
     }
 }

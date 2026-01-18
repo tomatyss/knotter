@@ -38,6 +38,47 @@ pub struct ContactDetailDto {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExportMetadataDto {
+    pub exported_at: i64,
+    pub app_version: String,
+    pub schema_version: i64,
+    pub format_version: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExportInteractionDto {
+    pub id: InteractionId,
+    pub occurred_at: i64,
+    pub created_at: i64,
+    pub kind: String,
+    pub note: String,
+    pub follow_up_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExportContactDto {
+    pub id: ContactId,
+    pub display_name: String,
+    pub email: Option<String>,
+    pub phone: Option<String>,
+    pub handle: Option<String>,
+    pub timezone: Option<String>,
+    pub next_touchpoint_at: Option<i64>,
+    pub cadence_days: Option<i32>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub archived_at: Option<i64>,
+    pub tags: Vec<String>,
+    pub interactions: Vec<ExportInteractionDto>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExportSnapshotDto {
+    pub metadata: ExportMetadataDto,
+    pub contacts: Vec<ExportContactDto>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReminderOutputDto {
     pub overdue: Vec<ContactListItemDto>,
     pub today: Vec<ContactListItemDto>,

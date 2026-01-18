@@ -572,8 +572,8 @@ Daily reminders can be scheduled externally; notifications are optional and safe
 - [x] Implement `knotter backup`:
   - [x] copies SQLite DB to timestamped file in data dir (or user-specified path)
   - [x] reject backup targets that resolve to the live DB or its WAL/SHM sidecars
-- [ ] Implement `knotter export json` (optional but very useful):
-  - [ ] full snapshot for portability
+- [x] Implement `knotter export json` (optional but very useful):
+  - [x] full snapshot for portability
 
 ### H3. Shell completions (optional MVP)
 - [ ] Generate completion scripts via CLI framework tooling
@@ -630,6 +630,7 @@ CLI:
 - [x] add note, then show detail includes note
 - [x] export vcf produces file importable elsewhere
 - [x] export ics produces events with stable UIDs (re-export doesn’t duplicate)
+- [x] export json produces a full snapshot
 
 TUI:
 - [ ] open list view, filter by `#tag`
