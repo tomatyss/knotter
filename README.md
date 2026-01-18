@@ -4,6 +4,25 @@ knotter is a terminal-first personal CRM and friendship tracker. It is an offlin
 
 Status: CLI MVP and TUI MVP are available from this repo (no packaged release yet).
 
+## Install (macOS via Homebrew)
+
+Homebrew packages are not published yet. This repo will act as its own tap once
+`Formula/knotter.rb` exists. When it does, install from this repo with:
+
+```
+brew tap tomatyss/knotter https://github.com/tomatyss/knotter
+brew install tomatyss/knotter/knotter
+```
+
+The Homebrew install should provide both `knotter` (CLI) and `knotter-tui` (TUI).
+
+Until then, build from source (see Quickstart below).
+
+## Install (Linux / Debian / Ubuntu)
+
+Packages are not published yet. See `docs/packaging.md` for local .deb builds and
+generic Unix install steps.
+
 ## Quickstart (dev)
 
 Build and run from source:
@@ -117,3 +136,4 @@ knotter backup --out /path/to/backup.sqlite3
 - `docs/KEYBINDINGS.md` for TUI keys
 - `docs/import-export.md` for vCard/ICS/JSON behavior
 - `docs/scheduling.md` for reminder scheduling
+- `docs/packaging.md` for package build notes

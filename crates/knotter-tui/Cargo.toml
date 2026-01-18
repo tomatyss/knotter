@@ -1,6 +1,10 @@
 [package]
 name = "knotter-tui"
 version = "0.1.0"
+authors = ["Tomatyss <tomatyss@users.noreply.github.com>"]
+license = "MIT"
+description = "Terminal-first personal CRM and friendship tracker (TUI)."
+repository = "https://github.com/tomatyss/knotter"
 edition = "2021"
 
 [dependencies]
@@ -11,3 +15,7 @@ ratatui = "0.26"
 crossterm = "0.27"
 clap = { version = "4", features = ["derive"] }
 chrono = "0.4"
+
+[package.metadata.deb]
+maintainer = "Tomatyss <tomatyss@users.noreply.github.com>"
+depends = "$auto"

@@ -1,6 +1,10 @@
 [package]
 name = "knotter-cli"
 version = "0.1.0"
+authors = ["Tomatyss <tomatyss@users.noreply.github.com>"]
+license = "MIT"
+description = "Terminal-first personal CRM and friendship tracker (CLI)."
+repository = "https://github.com/tomatyss/knotter"
 edition = "2021"
 
 [dependencies]
@@ -17,6 +21,10 @@ notify-rust = { version = "4", optional = true }
 [features]
 default = []
 desktop-notify = ["notify-rust"]
+
+[package.metadata.deb]
+maintainer = "Tomatyss <tomatyss@users.noreply.github.com>"
+depends = "$auto"
 
 [[bin]]
 name = "knotter"
