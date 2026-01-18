@@ -7,4 +7,4 @@ edition = "2021"
 knotter-core = { path = "../knotter-core" }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 serde = { version = "1", features = ["derive"] }
-thiserror = "1"
+thiserror = "2"
