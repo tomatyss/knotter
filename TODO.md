@@ -633,17 +633,17 @@ CLI:
 - [x] export json produces a full snapshot
 
 TUI:
-- [ ] open list view, filter by `#tag`
-- [ ] open detail
-- [ ] add note via modal
-- [ ] edit tags via modal
-- [ ] schedule touchpoint via modal
-- [ ] quit restores terminal correctly
+- [x] open list view, filter by `#tag`
+- [x] open detail
+- [x] add note via modal
+- [x] edit tags via modal
+- [x] schedule touchpoint via modal
+- [x] quit restores terminal correctly
 
 Portability:
-- [ ] remove XDG env vars and verify fallback path works
-- [ ] DB file is created in expected location
-- [ ] reminders work without desktop environment (stdout)
+- [x] remove XDG env vars and verify fallback path works
+- [x] DB file is created in expected location
+- [x] reminders work without desktop environment (stdout)
 
 ---
 
