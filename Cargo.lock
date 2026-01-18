@@ -1061,7 +1061,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "serde",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "uuid",
 ]
 
@@ -1074,7 +1074,7 @@ dependencies = [
  "knotter-core",
  "rusqlite",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -1084,7 +1084,7 @@ dependencies = [
  "chrono",
  "knotter-core",
  "serde",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
