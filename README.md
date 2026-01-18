@@ -6,8 +6,7 @@ Status: CLI MVP and TUI MVP are available from this repo (no packaged release ye
 
 ## Install (macOS via Homebrew)
 
-Homebrew packages are not published yet. This repo will act as its own tap once
-`Formula/knotter.rb` exists. When it does, install from this repo with:
+This repo acts as its own tap. Install from this repo with:
 
 ```
 brew tap tomatyss/knotter https://github.com/tomatyss/knotter
@@ -16,12 +15,12 @@ brew install tomatyss/knotter/knotter
 
 The Homebrew install should provide both `knotter` (CLI) and `knotter-tui` (TUI).
 
-Until then, build from source (see Quickstart below).
+If you already tapped, run `brew update` to pull the latest formula changes.
 
 ## Install (Linux / Debian / Ubuntu)
 
-Packages are not published yet. See `docs/packaging.md` for local .deb builds and
-generic Unix install steps.
+Tag-driven releases publish `.deb` artifacts. See `docs/packaging.md` for local
+.deb builds and generic Unix install steps.
 
 ## Quickstart (dev)
 

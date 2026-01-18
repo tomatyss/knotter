@@ -6,7 +6,7 @@ and generic Unix systems.
 
 ## Homebrew (macOS, single-repo tap)
 
-Once a formula exists at `Formula/knotter.rb`, install from this repo:
+The formula lives at `Formula/knotter.rb`. Install from this repo:
 
 ```
 brew tap tomatyss/knotter https://github.com/tomatyss/knotter
