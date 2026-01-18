@@ -10,3 +10,5 @@ knotter-sync = { path = "../knotter-sync" }
 anyhow = "1"
 ratatui = "0.26"
 crossterm = "0.27"
+clap = { version = "4", features = ["derive"] }
+chrono = "0.4"

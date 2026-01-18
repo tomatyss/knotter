@@ -2,7 +2,7 @@
 
 knotter is a terminal-first personal CRM and friendship tracker. It is an offline-first Rust app with a CLI and TUI, backed by a portable SQLite database, plus vCard/iCalendar import/export.
 
-Status: CLI MVP in progress (import/export done; TUI ongoing).
+Status: CLI MVP complete; TUI MVP available via `knotter-tui` (integration into `knotter tui` pending).
 
 ## Quickstart (dev)
 

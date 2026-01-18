@@ -1,11 +1,5 @@
 use anyhow::{anyhow, Result};
-use knotter_core::domain::{ContactId, InteractionKind};
-use knotter_core::rules::DueState;
-pub use knotter_core::time::{
-    format_timestamp_date, format_timestamp_datetime, local_offset, now_utc, parse_local_date_time,
-    parse_local_timestamp,
-};
-use std::str::FromStr;
+use knotter_core::domain::InteractionKind;
 
 pub fn parse_interaction_kind(raw: &str) -> Result<InteractionKind> {
     let trimmed = raw.trim();
@@ -38,22 +32,4 @@ pub fn format_interaction_kind(kind: &InteractionKind) -> String {
         InteractionKind::Email => "email".to_string(),
         InteractionKind::Other(label) => format!("other:{}", label),
     }
-}
-
-pub fn due_state_label(state: DueState) -> &'static str {
-    match state {
-        DueState::Unscheduled => "unscheduled",
-        DueState::Overdue => "overdue",
-        DueState::Today => "today",
-        DueState::Soon => "soon",
-        DueState::Scheduled => "scheduled",
-    }
-}
-
-pub fn parse_contact_id(raw: &str) -> Result<ContactId> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Err(anyhow!("contact id cannot be empty"));
-    }
-    ContactId::from_str(trimmed).map_err(|_| anyhow!("invalid contact id"))
 }

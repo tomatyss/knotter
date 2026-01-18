@@ -357,96 +357,97 @@ CLI is fully usable without TUI; reminders and export are operational.
 ## 5) Milestone E — TUI MVP (knotter-tui)
 
 ### E1. TUI foundation
-- [ ] Terminal init + restore guaranteed:
-  - [ ] normal exit
-  - [ ] panic hook restore
-  - [ ] ctrl-c handling
-- [ ] Event loop:
-  - [ ] input events
-  - [ ] tick events (optional)
-  - [ ] resize events
+- [x] Terminal init + restore guaranteed:
+  - [x] normal exit
+  - [x] panic hook restore
+  - [x] ctrl-c handling
+- [x] Event loop:
+  - [x] input events
+  - [x] tick events (optional)
+  - [x] resize events
 
 ### E2. App state + mode machine
-- [ ] Implement `App`:
-  - [ ] mode enum
-  - [ ] filter input string
-  - [ ] parsed filter + parse errors
-  - [ ] contact list cache
-  - [ ] selection cursor
-  - [ ] detail cache (selected contact + tags + recent interactions)
-  - [ ] status line
-  - [ ] error line
-- [ ] Implement modes:
-  - [ ] List
-  - [ ] Detail(contact_id)
-  - [ ] FilterEditing
-  - [ ] ModalAddContact
-  - [ ] ModalEditContact(contact_id)
-  - [ ] ModalAddNote(contact_id)
-  - [ ] ModalEditTags(contact_id)
-  - [ ] ModalSchedule(contact_id)
+- [x] Implement `App`:
+  - [x] mode enum
+  - [x] filter input string
+  - [x] parsed filter + parse errors
+  - [x] contact list cache
+  - [x] selection cursor
+  - [x] detail cache (selected contact + tags + recent interactions)
+  - [x] status line
+  - [x] error line
+- [x] Implement modes:
+  - [x] List
+  - [x] Detail(contact_id)
+  - [x] FilterEditing
+  - [x] ModalAddContact
+  - [x] ModalEditContact(contact_id)
+  - [x] ModalAddNote(contact_id)
+  - [x] ModalEditTags(contact_id)
+  - [x] ModalSchedule(contact_id)
 
 ### E3. Action/side-effect pattern
-- [ ] Define UI actions (examples):
-  - [ ] `LoadList(filter)`
-  - [ ] `LoadDetail(contact_id)`
-  - [ ] `CreateContact(...)`
-  - [ ] `UpdateContact(...)`
-  - [ ] `AddInteraction(...)`
-  - [ ] `SetTags(contact_id, tags)`
-  - [ ] `Schedule(contact_id, at)`
-- [ ] Executor runs actions and returns results to update state
-- [ ] Ensure no blocking DB calls inside render functions
+- [x] Define UI actions (examples):
+  - [x] `LoadList(filter)`
+  - [x] `LoadDetail(contact_id)`
+  - [x] `CreateContact(...)`
+  - [x] `UpdateContact(...)`
+  - [x] `AddInteraction(...)`
+  - [x] `SetTags(contact_id, tags)`
+  - [x] `Schedule(contact_id, at)`
+- [x] Executor runs actions and returns results to update state
+- [x] Ensure no blocking DB calls inside render functions
 
 ### E4. Screens and workflows
 List screen:
-- [ ] contact list shows:
-  - [ ] name
-  - [ ] due state indicator
-  - [ ] next touchpoint date (if any)
+- [x] contact list shows:
+  - [x] name
+  - [x] due state indicator
+  - [x] next touchpoint date (if any)
   - [ ] top tags (truncate smartly)
-- [ ] keybinds:
-  - [ ] arrows/j/k navigation
-  - [ ] enter opens detail
-  - [ ] `/` edit filter
-  - [ ] `a` add contact
-  - [ ] `e` edit selected contact
-  - [ ] `t` edit tags
-  - [ ] `n` add note
-  - [ ] `s` schedule
-  - [ ] `x` clear schedule
-  - [ ] `q` quit
+  - [x] tags displayed (no truncation yet)
+- [x] keybinds:
+  - [x] arrows/j/k navigation
+  - [x] enter opens detail
+  - [x] `/` edit filter
+  - [x] `a` add contact
+  - [x] `e` edit selected contact
+  - [x] `t` edit tags
+  - [x] `n` add note
+  - [x] `s` schedule
+  - [x] `x` clear schedule
+  - [x] `q` quit
 
 Detail screen:
-- [ ] show contact fields
-- [ ] show tags
-- [ ] show next touchpoint + cadence
-- [ ] show recent interactions (scroll)
-- [ ] allow quick add note from detail
-- [ ] allow tag editing and scheduling from detail
+- [x] show contact fields
+- [x] show tags
+- [x] show next touchpoint + cadence
+- [x] show recent interactions (scroll)
+- [x] allow quick add note from detail
+- [x] allow tag editing and scheduling from detail
 
 Modals:
-- [ ] Add/Edit contact modal:
-  - [ ] validations (name required, cadence positive, etc.)
-  - [ ] consistent date parsing with CLI (reuse parsing utility)
-- [ ] Add note modal:
-  - [ ] kind selector
-  - [ ] timestamp default now
-  - [ ] multi-line note editing
-- [ ] Tag editor modal:
-  - [ ] show list of tags + counts
-  - [ ] type-to-filter tags
-  - [ ] create new tag on enter
-  - [ ] toggle attach/detach
-  - [ ] apply set_tags (replace) on save
-- [ ] Schedule modal:
-  - [ ] date input
-  - [ ] optional time input
+- [x] Add/Edit contact modal:
+  - [x] validations (name required, cadence positive, etc.)
+  - [x] consistent date parsing with CLI (reuse parsing utility)
+- [x] Add note modal:
+  - [x] kind selector
+  - [x] timestamp default now
+  - [x] multi-line note editing
+- [x] Tag editor modal:
+  - [x] show list of tags + counts
+  - [x] type-to-filter tags
+  - [x] create new tag on enter
+  - [x] toggle attach/detach
+  - [x] apply set_tags (replace) on save
+- [x] Schedule modal:
+  - [x] date input
+  - [x] optional time input
   - [ ] quick options (today+7, today+30) (optional)
 
 ### E5. TUI docs + smoke checks
 - [x] Write `docs/KEYBINDINGS.md`
-- [ ] Manual smoke check checklist doc:
+- [x] Manual smoke check checklist doc (`docs/tui-smoke.md`):
   - [ ] open TUI
   - [ ] add contact
   - [ ] add tag
