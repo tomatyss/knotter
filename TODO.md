@@ -567,8 +567,8 @@ Daily reminders can be scheduled externally; notifications are optional and safe
   - [ ] feature flag changes
 
 ### H2. Backup and portability
-- [ ] Implement `knotter backup`:
-  - [ ] copies SQLite DB to timestamped file in data dir (or user-specified path)
+- [x] Implement `knotter backup`:
+  - [x] copies SQLite DB to timestamped file in data dir (or user-specified path)
 - [ ] Implement `knotter export json` (optional but very useful):
   - [ ] full snapshot for portability
 

@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use crate::commands::{contacts, interactions, remind, schedule, sync, tags, Context};
+use crate::commands::{backup, contacts, interactions, remind, schedule, sync, tags, Context};
 use knotter_core::{filter::FilterParseError, CoreError};
 use knotter_store::error::{StoreError, StoreErrorKind};
 use knotter_store::{paths, Store};
@@ -29,6 +29,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    Backup(backup::BackupArgs),
     #[command(name = "add-contact")]
     AddContact(contacts::AddContactArgs),
     #[command(name = "edit-contact")]
@@ -55,7 +56,7 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("{}", err);
+            eprintln!("{:#}", err);
             exit_code_for(&err)
         }
     }
@@ -81,6 +82,7 @@ fn run() -> Result<()> {
 
     match cli.command {
         Command::AddContact(args) => contacts::add_contact(&ctx, args),
+        Command::Backup(args) => backup::backup(&ctx, args),
         Command::EditContact(args) => contacts::edit_contact(&ctx, args),
         Command::Show(args) => contacts::show_contact(&ctx, args),
         Command::List(args) => contacts::list_contacts(&ctx, args),
@@ -123,7 +125,9 @@ fn exit_code_for(err: &anyhow::Error) -> ExitCode {
 fn store_exit_code(err: &StoreError) -> u8 {
     match err.kind() {
         StoreErrorKind::NotFound => 2,
-        StoreErrorKind::InvalidId | StoreErrorKind::InvalidFilter => 3,
+        StoreErrorKind::InvalidId
+        | StoreErrorKind::InvalidFilter
+        | StoreErrorKind::InvalidBackupPath => 3,
         StoreErrorKind::Core => 4,
         _ => 1,
     }

@@ -25,7 +25,7 @@ fn apply_pragmas(conn: &Connection) -> Result<()> {
 }
 
 #[cfg(unix)]
-fn restrict_db_permissions(path: &Path) -> Result<()> {
+pub(crate) fn restrict_db_permissions(path: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     if path.exists() {
         let perms = fs::Permissions::from_mode(0o600);
@@ -35,6 +35,6 @@ fn restrict_db_permissions(path: &Path) -> Result<()> {
 }
 
 #[cfg(not(unix))]
-fn restrict_db_permissions(_path: &Path) -> Result<()> {
+pub(crate) fn restrict_db_permissions(_path: &Path) -> Result<()> {
     Ok(())
 }

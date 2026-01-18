@@ -2,6 +2,7 @@ use anyhow::Result;
 use knotter_store::Store;
 use serde::Serialize;
 
+pub mod backup;
 pub mod contacts;
 pub mod interactions;
 pub mod remind;

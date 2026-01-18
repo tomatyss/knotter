@@ -32,6 +32,14 @@ Notes:
 
 ---
 
+## Backups
+
+knotter’s `backup` command creates a consistent SQLite snapshot using the
+SQLite online backup API. This is safe with WAL enabled and does not require
+closing the database.
+
+---
+
 ## Connection pragmas (recommended)
 
 knotter-store sets pragmatic defaults for local-app usage:

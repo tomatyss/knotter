@@ -94,6 +94,20 @@ By default, knotter stores data under the XDG data directory:
 
 You can override the database path with `--db-path`.
 
+## Backup
+
+Create a consistent SQLite snapshot (safe with WAL):
+
+```
+knotter backup
+```
+
+Or write to an explicit path:
+
+```
+knotter backup --out /path/to/backup.sqlite3
+```
+
 ## More docs
 
 - `docs/ARCHITECTURE.md` for system design and filtering semantics

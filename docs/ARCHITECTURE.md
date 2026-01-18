@@ -662,6 +662,7 @@ Minimum expectations:
 * DB file should be created with user-only permissions where possible.
 * Do not log full notes by default.
 * Avoid printing private data in error logs.
+* Provide a backup command that uses SQLite's online backup API for a consistent snapshot (safe with WAL).
 * If DAV sync is added:
 
   * never store credentials in plaintext unless explicitly allowed

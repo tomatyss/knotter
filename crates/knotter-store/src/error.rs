@@ -20,6 +20,8 @@ pub enum StoreError {
     Migration(String),
     #[error("invalid data path: {0}")]
     InvalidDataPath(PathBuf),
+    #[error("invalid backup path (matches database): {0}")]
+    InvalidBackupPath(PathBuf),
     #[error("unsupported interaction kind: {0}")]
     InvalidInteractionKind(String),
     #[error("invalid filter: {0}")]
@@ -38,6 +40,7 @@ pub enum StoreErrorKind {
     NotFound,
     Migration,
     InvalidDataPath,
+    InvalidBackupPath,
     InvalidInteractionKind,
     InvalidFilter,
 }
@@ -53,6 +56,7 @@ impl StoreError {
             StoreError::NotFound(_) => StoreErrorKind::NotFound,
             StoreError::Migration(_) => StoreErrorKind::Migration,
             StoreError::InvalidDataPath(_) => StoreErrorKind::InvalidDataPath,
+            StoreError::InvalidBackupPath(_) => StoreErrorKind::InvalidBackupPath,
             StoreError::InvalidInteractionKind(_) => StoreErrorKind::InvalidInteractionKind,
             StoreError::InvalidFilter(_) => StoreErrorKind::InvalidFilter,
         }

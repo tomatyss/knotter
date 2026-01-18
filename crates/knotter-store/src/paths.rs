@@ -1,7 +1,9 @@
 use crate::error::{Result, StoreError};
+use chrono::Local;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const APP_DIR: &str = "knotter";
 const DB_FILENAME: &str = "knotter.sqlite3";
@@ -46,7 +48,29 @@ pub fn db_path_in(dir: &Path) -> PathBuf {
     dir.join(DB_FILENAME)
 }
 
-fn ensure_parent_dir(path: &Path) -> Result<()> {
+pub fn backup_path() -> Result<PathBuf> {
+    let dir = ensure_data_dir()?;
+    let stamp = Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let mut candidate = dir.join(format!("knotter-backup-{stamp}-{nanos}.sqlite3"));
+    if candidate.exists() {
+        let mut suffix = 1;
+        loop {
+            let next = dir.join(format!("knotter-backup-{stamp}-{nanos}-{suffix}.sqlite3"));
+            if !next.exists() {
+                candidate = next;
+                break;
+            }
+            suffix += 1;
+        }
+    }
+    Ok(candidate)
+}
+
+pub(crate) fn ensure_parent_dir(path: &Path) -> Result<()> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             let created = !parent.exists();

@@ -91,6 +91,16 @@ Output: JSON object:
 - `count` (number of exported entries)
 - `output` (string path)
 
+### `knotter backup --json`
+
+If `--out` is omitted, the backup is written to the XDG data dir using a
+timestamped filename.
+
+Output: JSON object:
+
+- `output` (string path)
+- `size_bytes` (number)
+
 ## Exit codes (selected)
 
 - `3` for invalid filter syntax (e.g., `due:later`).

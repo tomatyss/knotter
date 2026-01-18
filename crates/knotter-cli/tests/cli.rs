@@ -1,5 +1,6 @@
 use assert_cmd::cargo::cargo_bin_cmd;
 use knotter_core::rules::MAX_SOON_DAYS;
+use knotter_store::Store;
 use serde_json::Value;
 use std::path::Path;
 use tempfile::TempDir;
@@ -171,6 +172,41 @@ fn cli_export_ics_writes_file() {
     let contents = std::fs::read_to_string(&out_path).expect("read ics");
     assert!(contents.contains("BEGIN:VEVENT"));
     assert!(contents.contains("SUMMARY:Reach out to Ada Lovelace"));
+}
+
+#[test]
+fn cli_backup_writes_file() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let backup_path = temp.path().join("backup.sqlite3");
+
+    run_cmd(&db_path, &["add-contact", "--name", "Ada Lovelace"]);
+    run_cmd(
+        &db_path,
+        &["backup", "--out", backup_path.to_str().expect("path")],
+    );
+
+    assert!(backup_path.exists());
+    let backup = Store::open(&backup_path).expect("open backup");
+    backup.migrate().expect("migrate backup");
+    let contacts = backup.contacts().list_all().expect("list contacts");
+    assert_eq!(contacts.len(), 1);
+}
+
+#[test]
+fn cli_backup_rejects_db_path() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+
+    run_cmd(&db_path, &["add-contact", "--name", "Ada Lovelace"]);
+
+    let output = run_cmd_output(
+        &db_path,
+        &["backup", "--out", db_path.to_str().expect("path")],
+    );
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("backup path"));
 }
 
 #[test]

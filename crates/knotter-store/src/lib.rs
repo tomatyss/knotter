@@ -1,3 +1,4 @@
+pub mod backup;
 pub mod db;
 pub mod error;
 pub mod migrate;
@@ -26,6 +27,10 @@ impl Store {
 
     pub fn migrate(&self) -> Result<()> {
         migrate::run_migrations(&self.conn)
+    }
+
+    pub fn backup_to(&self, path: &Path) -> Result<()> {
+        backup::backup_to(&self.conn, path)
     }
 
     pub fn connection(&self) -> &Connection {
