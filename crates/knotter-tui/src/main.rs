@@ -3,7 +3,6 @@ mod app;
 mod ui;
 mod util;
 
-use std::fs;
 use std::io::{self, Stdout};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -35,22 +34,7 @@ struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    let db_path = match args.db_path {
-        Some(path) => {
-            if let Some(parent) = path.parent() {
-                if !parent.as_os_str().is_empty() {
-                    let created = !parent.exists();
-                    fs::create_dir_all(parent)
-                        .with_context(|| format!("create db directory {}", parent.display()))?;
-                    if created {
-                        restrict_dir_permissions(parent)?;
-                    }
-                }
-            }
-            path
-        }
-        None => paths::db_path()?,
-    };
+    let db_path = paths::resolve_db_path(args.db_path).with_context(|| "resolve database path")?;
 
     let store = Store::open(&db_path)?;
     store.migrate()?;
@@ -134,19 +118,5 @@ impl Drop for TerminalGuard {
 fn restore_terminal() -> Result<()> {
     disable_raw_mode()?;
     execute!(io::stdout(), LeaveAlternateScreen)?;
-    Ok(())
-}
-
-#[cfg(unix)]
-fn restrict_dir_permissions(dir: &std::path::Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    let perms = fs::Permissions::from_mode(0o700);
-    fs::set_permissions(dir, perms)
-        .with_context(|| format!("restrict permissions for {}", dir.display()))?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn restrict_dir_permissions(_dir: &std::path::Path) -> Result<()> {
     Ok(())
 }

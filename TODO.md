@@ -619,14 +619,14 @@ A new user can install, run, and understand knotter using docs only.
 ## 10) Acceptance test checklist (run before declaring MVP)
 
 CLI:
-- [ ] add contact with name only
-- [ ] add email/phone/handle
-- [ ] tag add + list by `--filter "#tag"`
-- [ ] schedule next touchpoint
-- [ ] remind shows it in the expected bucket
-- [ ] add note, then show detail includes note
-- [ ] export vcf produces file importable elsewhere
-- [ ] export ics produces events with stable UIDs (re-export doesn’t duplicate)
+- [x] add contact with name only
+- [x] add email/phone/handle
+- [x] tag add + list by `--filter "#tag"`
+- [x] schedule next touchpoint
+- [x] remind shows it in the expected bucket
+- [x] add note, then show detail includes note
+- [x] export vcf produces file importable elsewhere
+- [x] export ics produces events with stable UIDs (re-export doesn’t duplicate)
 
 TUI:
 - [ ] open list view, filter by `#tag`

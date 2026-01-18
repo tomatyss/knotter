@@ -4,7 +4,6 @@ mod util;
 
 use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
-use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -65,22 +64,7 @@ fn main() -> ExitCode {
 fn run() -> Result<()> {
     let cli = Cli::parse();
 
-    let db_path = match cli.db_path {
-        Some(path) => {
-            if let Some(parent) = path.parent() {
-                if !parent.as_os_str().is_empty() {
-                    let created = !parent.exists();
-                    fs::create_dir_all(parent)
-                        .with_context(|| format!("create db directory {}", parent.display()))?;
-                    if created {
-                        restrict_dir_permissions(parent)?;
-                    }
-                }
-            }
-            path
-        }
-        None => paths::db_path()?,
-    };
+    let db_path = paths::resolve_db_path(cli.db_path).with_context(|| "resolve database path")?;
 
     if cli.verbose {
         eprintln!("db: {}", db_path.display());
@@ -119,20 +103,6 @@ fn run() -> Result<()> {
             sync::ExportCommand::Ics(args) => sync::export_ics(&ctx, args),
         },
     }
-}
-
-#[cfg(unix)]
-fn restrict_dir_permissions(dir: &std::path::Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    let perms = fs::Permissions::from_mode(0o700);
-    fs::set_permissions(dir, perms)
-        .with_context(|| format!("restrict permissions for {}", dir.display()))?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn restrict_dir_permissions(_dir: &std::path::Path) -> Result<()> {
-    Ok(())
 }
 
 fn exit_code_for(err: &anyhow::Error) -> ExitCode {

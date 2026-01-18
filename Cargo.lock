@@ -816,7 +816,6 @@ dependencies = [
  "crossterm",
  "knotter-core",
  "knotter-store",
- "knotter-sync",
  "ratatui",
 ]
 
