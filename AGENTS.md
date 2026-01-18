@@ -10,6 +10,7 @@ No build system is checked in yet. Once the Cargo workspace is created, use stan
 - `cargo test` — run unit/integration tests.
 - `cargo fmt` / `cargo fmt --check` — format code.
 - `cargo clippy --all-targets --all-features -D warnings` — lint.
+- After any code updates, run `just precommit` and fix any issues it reports.
 
 ## Coding Style & Naming Conventions
 - Language: Rust. Prefer `rustfmt` defaults (4-space indentation; wrap by formatter).
