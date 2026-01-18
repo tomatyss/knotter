@@ -225,6 +225,7 @@ Implement repositories (traits or concrete structs). Keep SQL internal.
   - [x] unique constraint ensures dedupe
 - [x] `list_tags_with_counts`
 - [x] `list_tags_for_contact`
+- [x] bulk tag lookup for list views avoids SQLite parameter limits (temp table strategy)
 - [x] `add_tag_to_contact`
 - [x] `remove_tag_from_contact`
 - [x] `set_contact_tags` (replace entire tag set; simplifies TUI tag editor)
@@ -472,6 +473,7 @@ TUI provides the same core workflows as CLI (at least add note, tags, schedule, 
 - [x] Decide dedupe policy (document + implement):
   - [x] MVP recommended: if email matches existing contact, update; else create new
   - [x] if missing email, do not dedupe (create new)
+  - [x] skip when multiple contacts share the same email or the only match is archived
 - [x] Import report:
   - [x] created
   - [x] updated
@@ -554,21 +556,22 @@ Daily reminders can be scheduled externally; notifications are optional and safe
 ## 8) Milestone H — Documentation, polish, and release readiness
 
 ### H1. Documentation completeness
-- [ ] README final:
-  - [ ] quickstart
-  - [ ] CLI examples
-  - [ ] TUI basics + keybinds
-  - [ ] data location (XDG)
-  - [ ] reminders scheduling
-  - [ ] import/export usage
-- [ ] Keep architecture doc up to date with any deviations:
-  - [ ] schema changes
-  - [ ] filter changes
-  - [ ] feature flag changes
+- [x] README final:
+  - [x] quickstart
+  - [x] CLI examples
+  - [x] TUI basics + keybinds
+  - [x] data location (XDG)
+  - [x] reminders scheduling
+  - [x] import/export usage
+- [x] Keep architecture doc up to date with any deviations:
+  - [x] schema changes
+  - [x] filter changes
+  - [x] feature flag changes
 
 ### H2. Backup and portability
 - [x] Implement `knotter backup`:
   - [x] copies SQLite DB to timestamped file in data dir (or user-specified path)
+  - [x] reject backup targets that resolve to the live DB or its WAL/SHM sidecars
 - [ ] Implement `knotter export json` (optional but very useful):
   - [ ] full snapshot for portability
 
@@ -582,7 +585,7 @@ Daily reminders can be scheduled externally; notifications are optional and safe
 - [ ] Add logging policy:
   - [ ] quiet by default
   - [ ] verbose flag prints debug info (never secrets)
-- [ ] TUI never corrupts terminal state even on panic
+- [x] TUI never corrupts terminal state even on panic
 
 **DoD (Milestone H)**  
 A new user can install, run, and understand knotter using docs only.
