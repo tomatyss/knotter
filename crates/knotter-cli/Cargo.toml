@@ -9,6 +9,7 @@ edition = "2021"
 
 [dependencies]
 knotter-core = { path = "../knotter-core" }
+knotter-config = { path = "../knotter-config" }
 knotter-store = { path = "../knotter-store" }
 knotter-sync = { path = "../knotter-sync" }
 anyhow = "1"

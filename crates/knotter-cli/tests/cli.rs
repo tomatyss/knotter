@@ -1,4 +1,5 @@
 use assert_cmd::cargo::cargo_bin_cmd;
+use chrono::{Duration, Local};
 use knotter_core::rules::MAX_SOON_DAYS;
 use knotter_store::repo::ContactUpdate;
 use knotter_store::Store;
@@ -10,6 +11,21 @@ use tempfile::TempDir;
 fn run_cmd(db_path: &Path, args: &[&str]) -> String {
     let output = cargo_bin_cmd!("knotter")
         .args(["--db-path", db_path.to_str().expect("db path")])
+        .args(args)
+        .output()
+        .expect("run command");
+    assert!(output.status.success(), "command failed: {:?}", output);
+    String::from_utf8(output.stdout).expect("utf8")
+}
+
+fn run_cmd_with_config(db_path: &Path, config_path: &Path, args: &[&str]) -> String {
+    let output = cargo_bin_cmd!("knotter")
+        .args([
+            "--db-path",
+            db_path.to_str().expect("db path"),
+            "--config",
+            config_path.to_str().expect("config path"),
+        ])
         .args(args)
         .output()
         .expect("run command");
@@ -33,6 +49,34 @@ fn run_cmd_json(db_path: &Path, args: &[&str]) -> Value {
         .expect("run command");
     assert!(output.status.success(), "command failed: {:?}", output);
     serde_json::from_slice(&output.stdout).expect("parse json")
+}
+
+fn run_cmd_json_with_config(db_path: &Path, config_path: &Path, args: &[&str]) -> Value {
+    let output = cargo_bin_cmd!("knotter")
+        .args([
+            "--db-path",
+            db_path.to_str().expect("db path"),
+            "--config",
+            config_path.to_str().expect("config path"),
+            "--json",
+        ])
+        .args(args)
+        .output()
+        .expect("run command");
+    assert!(output.status.success(), "command failed: {:?}", output);
+    serde_json::from_slice(&output.stdout).expect("parse json")
+}
+
+fn restrict_config_permissions(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(path)
+            .expect("config metadata")
+            .permissions();
+        perms.set_mode(0o600);
+        std::fs::set_permissions(path, perms).expect("chmod config");
+    }
 }
 
 #[test]
@@ -81,6 +125,108 @@ fn cli_remind_includes_soon_contact() {
     let soon = remind["soon"].as_array().expect("soon array");
     assert_eq!(soon.len(), 1);
     assert_eq!(soon[0]["id"], id);
+}
+
+#[test]
+fn cli_remind_uses_config_due_soon_days() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let config_path = temp.path().join("config.toml");
+
+    std::fs::write(&config_path, "due_soon_days = 0\n").expect("write config");
+    restrict_config_permissions(&config_path);
+
+    run_cmd_with_config(
+        &db_path,
+        &config_path,
+        &["add-contact", "--name", "Ada Lovelace"],
+    );
+
+    let list = run_cmd_json_with_config(&db_path, &config_path, &["list"]);
+    let items = list.as_array().expect("array");
+    let id = items[0]["id"].as_str().expect("id").to_string();
+
+    let tomorrow = Local::now()
+        .date_naive()
+        .checked_add_signed(Duration::days(1))
+        .expect("tomorrow");
+    let scheduled = tomorrow.format("%Y-%m-%d").to_string();
+    run_cmd_with_config(
+        &db_path,
+        &config_path,
+        &["schedule", &id, "--at", &scheduled],
+    );
+
+    let remind = run_cmd_json_with_config(&db_path, &config_path, &["remind"]);
+    assert!(remind["overdue"].as_array().expect("overdue").is_empty());
+    assert!(remind["today"].as_array().expect("today").is_empty());
+    assert!(remind["soon"].as_array().expect("soon").is_empty());
+}
+
+#[test]
+fn cli_remind_no_notify_overrides_config() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let config_path = temp.path().join("config.toml");
+
+    std::fs::write(
+        &config_path,
+        "due_soon_days = 3650\n[notifications]\nenabled = true\nbackend = \"desktop\"\n",
+    )
+    .expect("write config");
+    restrict_config_permissions(&config_path);
+
+    run_cmd_with_config(
+        &db_path,
+        &config_path,
+        &["add-contact", "--name", "Ada Lovelace"],
+    );
+
+    let list = run_cmd_json_with_config(&db_path, &config_path, &["list"]);
+    let items = list.as_array().expect("array");
+    let id = items[0]["id"].as_str().expect("id").to_string();
+    run_cmd_with_config(
+        &db_path,
+        &config_path,
+        &["schedule", &id, "--at", "2030-01-02"],
+    );
+
+    let output = run_cmd_with_config(&db_path, &config_path, &["remind", "--no-notify"]);
+    assert!(output.contains("soon:"));
+    assert!(output.contains("Ada Lovelace"));
+}
+
+#[test]
+fn cli_remind_config_stdout_backend_prints_full_list() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let config_path = temp.path().join("config.toml");
+
+    std::fs::write(
+        &config_path,
+        "due_soon_days = 3650\n[notifications]\nenabled = true\nbackend = \"stdout\"\n",
+    )
+    .expect("write config");
+    restrict_config_permissions(&config_path);
+
+    run_cmd_with_config(
+        &db_path,
+        &config_path,
+        &["add-contact", "--name", "Ada Lovelace"],
+    );
+
+    let list = run_cmd_json_with_config(&db_path, &config_path, &["list"]);
+    let items = list.as_array().expect("array");
+    let id = items[0]["id"].as_str().expect("id").to_string();
+    run_cmd_with_config(
+        &db_path,
+        &config_path,
+        &["schedule", &id, "--at", "2030-01-02"],
+    );
+
+    let output = run_cmd_with_config(&db_path, &config_path, &["remind"]);
+    assert!(output.contains("soon:"));
+    assert!(output.contains("Ada Lovelace"));
 }
 
 #[test]

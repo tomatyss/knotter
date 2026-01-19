@@ -19,6 +19,7 @@ use ratatui::Terminal;
 
 use crate::actions::execute_action;
 use crate::app::App;
+use knotter_config as config;
 use knotter_core::rules::validate_soon_days;
 use knotter_store::{paths, Store};
 
@@ -27,20 +28,23 @@ use knotter_store::{paths, Store};
 struct Args {
     #[arg(long)]
     db_path: Option<PathBuf>,
-    #[arg(long, default_value_t = 7)]
-    soon_days: i64,
+    #[arg(long)]
+    config: Option<PathBuf>,
+    #[arg(long)]
+    soon_days: Option<i64>,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
+    let app_config = config::load(args.config.clone()).with_context(|| "load config")?;
 
     let db_path = paths::resolve_db_path(args.db_path).with_context(|| "resolve database path")?;
 
     let store = Store::open(&db_path)?;
     store.migrate()?;
 
-    let mut app = App::new();
-    app.soon_days = validate_soon_days(args.soon_days)?;
+    let soon_days = validate_soon_days(args.soon_days.unwrap_or(app_config.due_soon_days))?;
+    let mut app = App::new(soon_days, app_config.default_cadence_days);
 
     let mut terminal = TerminalGuard::new()?;
     run_app(&mut terminal, &store, &mut app)

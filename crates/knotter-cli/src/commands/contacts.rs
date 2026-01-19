@@ -1,4 +1,4 @@
-use crate::commands::{print_json, Context, DEFAULT_INTERACTION_LIMIT, DEFAULT_SOON_DAYS};
+use crate::commands::{print_json, Context, DEFAULT_INTERACTION_LIMIT};
 use crate::util::{
     due_state_label, format_interaction_kind, format_timestamp_date, format_timestamp_datetime,
     local_offset, now_utc, parse_contact_id, parse_local_timestamp,
@@ -70,6 +70,7 @@ pub fn add_contact(ctx: &Context<'_>, args: AddContactArgs) -> Result<()> {
         Some(value) => Some(parse_local_timestamp(&value)?),
         None => None,
     };
+    let cadence_days = args.cadence_days.or(ctx.config.default_cadence_days);
 
     let contact = ctx.store.contacts().create(
         now,
@@ -80,7 +81,7 @@ pub fn add_contact(ctx: &Context<'_>, args: AddContactArgs) -> Result<()> {
             handle: args.handle,
             timezone: args.timezone,
             next_touchpoint_at,
-            cadence_days: args.cadence_days,
+            cadence_days,
             archived_at: None,
         },
     )?;
@@ -251,10 +252,11 @@ pub fn list_contacts(ctx: &Context<'_>, args: ListArgs) -> Result<()> {
 
     let now = now_utc();
     let offset = local_offset();
+    let soon_days = ctx.config.due_soon_days;
     let contacts = ctx
         .store
         .contacts()
-        .list_contacts(&query, now, DEFAULT_SOON_DAYS, offset)?;
+        .list_contacts(&query, now, soon_days, offset)?;
 
     let contact_ids = contacts
         .iter()
@@ -268,8 +270,7 @@ pub fn list_contacts(ctx: &Context<'_>, args: ListArgs) -> Result<()> {
             .get(&contact.id)
             .cloned()
             .unwrap_or_default();
-        let due_state =
-            compute_due_state(now, contact.next_touchpoint_at, DEFAULT_SOON_DAYS, offset)?;
+        let due_state = compute_due_state(now, contact.next_touchpoint_at, soon_days, offset)?;
         items.push(ContactListItemDto {
             id: contact.id,
             display_name: contact.display_name,

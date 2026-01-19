@@ -6,7 +6,6 @@ use knotter_core::filter::{parse_filter, ContactFilter};
 
 use crate::actions::Action;
 
-const DEFAULT_SOON_DAYS: i64 = 7;
 const LIST_EMPTY: &str = "No contacts. Press 'a' to add one.";
 
 #[derive(Debug, Clone)]
@@ -37,13 +36,14 @@ pub struct App {
     pub status: Option<String>,
     pub error: Option<String>,
     pub soon_days: i64,
+    pub default_cadence_days: Option<i32>,
     pub empty_hint: &'static str,
     actions: VecDeque<Action>,
     pub(crate) pending_select: Option<ContactId>,
 }
 
 impl App {
-    pub fn new() -> Self {
+    pub fn new(soon_days: i64, default_cadence_days: Option<i32>) -> Self {
         let mut app = Self {
             mode: Mode::List,
             show_help: false,
@@ -57,7 +57,8 @@ impl App {
             detail_scroll: 0,
             status: None,
             error: None,
-            soon_days: DEFAULT_SOON_DAYS,
+            soon_days,
+            default_cadence_days,
             empty_hint: LIST_EMPTY,
             actions: VecDeque::new(),
             pending_select: None,
@@ -220,7 +221,9 @@ impl App {
                 self.enqueue(Action::LoadList);
             }
             KeyCode::Char('a') => {
-                return Some(Mode::ModalAddContact(ContactForm::new()));
+                return Some(Mode::ModalAddContact(ContactForm::new(
+                    self.default_cadence_days,
+                )));
             }
             KeyCode::Char('e') => {
                 if let Some(detail) = self.detail_for_selected() {
@@ -555,7 +558,7 @@ pub struct ContactForm {
 impl ContactForm {
     const FIELD_COUNT: usize = 7;
 
-    pub fn new() -> Self {
+    pub fn new(default_cadence_days: Option<i32>) -> Self {
         Self {
             focus: 0,
             contact_id: None,
@@ -564,7 +567,9 @@ impl ContactForm {
             phone: String::new(),
             handle: String::new(),
             timezone: String::new(),
-            cadence_days: String::new(),
+            cadence_days: default_cadence_days
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
             next_touchpoint_at: String::new(),
         }
     }

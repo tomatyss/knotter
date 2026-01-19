@@ -107,6 +107,28 @@ Use your system scheduler to run reminders (cron/systemd examples in `docs/sched
 /path/to/knotter remind --notify
 ```
 
+## Configuration
+
+knotter reads an optional TOML config file from:
+
+- `$XDG_CONFIG_HOME/knotter/config.toml`
+- Fallback: `~/.config/knotter/config.toml`
+
+Use `--config /path/to/config.toml` to override the location.
+
+Example:
+
+```
+due_soon_days = 7
+default_cadence_days = 30
+
+[notifications]
+enabled = false
+backend = "stdout" # or "desktop"
+```
+
+On Unix, the config file must be user-readable only (`chmod 600`).
+
 ## Data location
 
 By default, knotter stores data under the XDG data directory:

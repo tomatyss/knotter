@@ -46,9 +46,18 @@ systemctl --user enable --now knotter-remind.timer
 
 ## Notes
 
-- `knotter remind` prints human output to stdout unless `--json` or `--notify` is used.
-- `knotter remind --json` always emits JSON to stdout, even with `--notify`.
+- `knotter remind` prints human output to stdout unless `--json` is used. If
+  notifications are enabled (via `--notify` or config), it will notify instead
+  of printing the list.
+- `knotter remind --json` always emits JSON to stdout. Notifications only run when
+  `--notify` is provided explicitly.
 - `knotter remind --notify` will use desktop notifications if built with the
   `desktop-notify` feature; otherwise it falls back to a stdout summary.
-- `knotter remind --json` emits JSON for automation; notifications still run, but
-  notification failure returns a non-zero exit code to avoid silent misses.
+- `knotter remind --json` emits JSON for automation; with `--notify`, notification
+  failure returns a non-zero exit code to avoid silent misses.
+- Configure defaults in `~/.config/knotter/config.toml` (see README) for
+  `due_soon_days` and notification settings.
+- If notifications are enabled in config, pass `--no-notify` to suppress them
+  for a single run.
+- If `notifications.backend = "stdout"`, `--notify` prints the full reminder list
+  (same as human output). This backend cannot be used with `--json`.

@@ -47,6 +47,9 @@ knotter is split into layers to keep UI and persistence separate from business l
 - **knotter-core**
   - Pure domain types and business rules.
   - No SQLite, no terminal, no file I/O.
+- **knotter-config**
+  - Loads config from XDG paths or `--config`.
+  - Validates values and enforces strict permissions (where supported).
 - **knotter-store**
   - SQLite persistence, migrations, and repositories.
   - Converts between DB rows and core domain types.
@@ -67,9 +70,10 @@ knotter is split into layers to keep UI and persistence separate from business l
 
 ### Dependency direction (must not be violated)
 - knotter-core: depends on (almost) nothing; ideally only `uuid`, `serde` (optional), and a time crate.
+- knotter-config: depends on core for validation helpers.
 - knotter-store: depends on core + SQLite libs.
 - knotter-sync: depends on core + parsing/generation libs; may depend on store when import wants to upsert.
-- knotter-cli / knotter-tui: depend on core/store/sync; never the other way around.
+- knotter-cli / knotter-tui: depend on core/config/store/sync; never the other way around.
 
 ---
 
@@ -86,6 +90,9 @@ Recommended structure:
       - `rules/` (due.rs, cadence.rs)
       - `filter/` (parser.rs, ast.rs)
       - `error.rs`
+  - `knotter-config/`
+    - `src/`
+      - `lib.rs` (XDG config lookup + TOML parsing)
   - `knotter-store/`
     - `src/`
       - `lib.rs`
@@ -660,6 +667,8 @@ Config keys (MVP):
 * `default_cadence_days = 30` (optional)
 * `notifications.enabled = true/false`
 * `notifications.backend = "stdout" | "desktop" | "email"` (MVP: stdout/desktop)
+
+On Unix, config files must be user-readable only (e.g., `chmod 600`).
 
 Config parsing lives outside core (store/cli/tui).
 

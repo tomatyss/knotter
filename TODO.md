@@ -538,9 +538,9 @@ Import/export works reliably with predictable mappings and test coverage.
 - [x] Implement desktop backend behind `desktop-notify` feature:
   - [x] if it fails, fallback to stdout
 - [x] Wire `knotter remind --notify` to notifier selection
-- [ ] Add config support (optional MVP):
-  - [ ] default notify on/off
-  - [ ] default soon window days
+- [x] Add config support (optional MVP):
+  - [x] default notify on/off
+  - [x] default soon window days
 
 ### G3. Scheduling documentation
 - [x] Write `docs/scheduling.md`:

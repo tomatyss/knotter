@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use crate::commands::{backup, contacts, interactions, remind, schedule, sync, tags, tui, Context};
+use knotter_config as config;
 use knotter_core::{filter::FilterParseError, CoreError};
 use knotter_store::error::{StoreError, StoreErrorKind};
 use knotter_store::{paths, Store};
@@ -66,15 +67,30 @@ fn main() -> ExitCode {
 fn run() -> Result<()> {
     let Cli {
         db_path,
-        config,
+        config: config_path,
         json,
         verbose,
         command,
     } = Cli::parse();
 
     match command {
-        Command::Tui(args) => tui::launch(db_path, args, verbose),
+        Command::Tui(args) => tui::launch(db_path, config_path, args, verbose),
         command => {
+            let app_config = config::load(config_path.clone()).with_context(|| "load config")?;
+            if verbose {
+                match config::resolve_config_path(config_path.clone()) {
+                    Ok(path) => {
+                        if path.exists() {
+                            eprintln!("config: {}", path.display());
+                        } else {
+                            eprintln!("config: {} (missing, using defaults)", path.display());
+                        }
+                    }
+                    Err(err) => {
+                        eprintln!("config: unavailable ({err})");
+                    }
+                }
+            }
             let db_path =
                 paths::resolve_db_path(db_path).with_context(|| "resolve database path")?;
 
@@ -85,10 +101,10 @@ fn run() -> Result<()> {
             let store = Store::open(&db_path)?;
             store.migrate()?;
 
-            let _config_path = config;
             let ctx = Context {
                 store: &store,
                 json,
+                config: &app_config,
             };
 
             match command {

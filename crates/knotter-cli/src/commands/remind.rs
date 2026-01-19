@@ -1,8 +1,9 @@
-use crate::commands::{print_json, Context, DEFAULT_SOON_DAYS};
+use crate::commands::{print_json, Context};
 use crate::notify::{Notifier, StdoutNotifier};
 use crate::util::{format_timestamp_date, local_offset, now_utc};
 use anyhow::Result;
 use clap::Args;
+use knotter_config::NotificationBackend;
 use knotter_core::dto::{ContactListItemDto, ReminderOutputDto};
 use knotter_core::rules::{compute_due_state, validate_soon_days};
 
@@ -17,10 +18,22 @@ pub struct RemindArgs {
     pub soon_days: Option<i64>,
     #[arg(long)]
     pub notify: bool,
+    #[arg(long, conflicts_with = "notify")]
+    pub no_notify: bool,
 }
 
 pub fn remind(ctx: &Context<'_>, args: RemindArgs) -> Result<()> {
-    let soon_days = validate_soon_days(args.soon_days.unwrap_or(DEFAULT_SOON_DAYS))?;
+    let soon_days = validate_soon_days(args.soon_days.unwrap_or(ctx.config.due_soon_days))?;
+    let notify_requested = if args.no_notify {
+        false
+    } else if args.notify {
+        true
+    } else if ctx.json {
+        false
+    } else {
+        ctx.config.notifications.enabled
+    };
+    let backend = ctx.config.notifications.backend;
 
     let now = now_utc();
     let offset = local_offset();
@@ -55,12 +68,12 @@ pub fn remind(ctx: &Context<'_>, args: RemindArgs) -> Result<()> {
 
     if ctx.json {
         print_json(&output)?;
-    } else if !args.notify {
+    } else if !notify_requested {
         print_human(&output);
     }
 
-    if args.notify {
-        notify(&output, ctx.json)?;
+    if notify_requested {
+        notify(&output, ctx.json, backend)?;
     }
 
     Ok(())
@@ -106,13 +119,23 @@ fn print_bucket(label: &str, items: &[ContactListItemDto]) {
     }
 }
 
-fn notify(output: &ReminderOutputDto, json_mode: bool) -> Result<()> {
+fn notify(output: &ReminderOutputDto, json_mode: bool, backend: NotificationBackend) -> Result<()> {
     if output.is_empty() {
         return Ok(());
     }
 
     let title = "knotter reminders";
     let body = notification_body(output, 5);
+
+    if backend == NotificationBackend::Stdout {
+        if json_mode {
+            return Err(anyhow::anyhow!(
+                "stdout notifications are unavailable in --json mode; drop --json or use desktop backend"
+            ));
+        }
+        print_human(output);
+        return Ok(());
+    }
 
     #[cfg(feature = "desktop-notify")]
     {

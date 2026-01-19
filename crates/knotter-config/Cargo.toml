@@ -1,0 +1,18 @@
+[package]
+name = "knotter-config"
+version = "0.1.0"
+authors = ["Tomatyss <tomatyss@users.noreply.github.com>"]
+license = "MIT"
+description = "Configuration loader for knotter."
+repository = "https://github.com/tomatyss/knotter"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "1"
+toml = "0.8"
+dirs = "5"
+knotter-core = { path = "../knotter-core" }
+
+[dev-dependencies]
+tempfile = "3"

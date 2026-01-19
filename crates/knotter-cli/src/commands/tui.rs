@@ -6,21 +6,23 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::DEFAULT_SOON_DAYS;
-
 #[derive(Debug, Args)]
 pub struct TuiArgs {
-    #[arg(long, default_value_t = DEFAULT_SOON_DAYS)]
-    pub soon_days: i64,
+    #[arg(long)]
+    pub soon_days: Option<i64>,
 }
 
-pub fn launch(db_path: Option<PathBuf>, args: TuiArgs, verbose: bool) -> Result<()> {
+pub fn launch(
+    db_path: Option<PathBuf>,
+    config_path: Option<PathBuf>,
+    args: TuiArgs,
+    verbose: bool,
+) -> Result<()> {
     let db_path = paths::resolve_db_path(db_path).with_context(|| "resolve database path")?;
-    let soon_days = validate_soon_days(args.soon_days)?;
     if verbose {
         eprintln!("db: {}", db_path.display());
     }
-    let mut command = build_command(&db_path, soon_days);
+    let mut command = build_command(&db_path, config_path, args.soon_days)?;
 
     #[cfg(unix)]
     {
@@ -36,12 +38,22 @@ pub fn launch(db_path: Option<PathBuf>, args: TuiArgs, verbose: bool) -> Result<
     }
 }
 
-fn build_command(db_path: &Path, soon_days: i64) -> Command {
+fn build_command(
+    db_path: &Path,
+    config_path: Option<PathBuf>,
+    soon_days: Option<i64>,
+) -> Result<Command> {
     let binary = find_tui_binary();
     let mut command = Command::new(binary);
     command.arg("--db-path").arg(db_path);
-    command.arg("--soon-days").arg(soon_days.to_string());
-    command
+    if let Some(path) = config_path {
+        command.arg("--config").arg(path);
+    }
+    if let Some(value) = soon_days {
+        let soon_days = validate_soon_days(value)?;
+        command.arg("--soon-days").arg(soon_days.to_string());
+    }
+    Ok(command)
 }
 
 fn find_tui_binary() -> PathBuf {

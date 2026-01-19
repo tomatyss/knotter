@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "crates/knotter-core",
+  "crates/knotter-config",
   "crates/knotter-store",
   "crates/knotter-sync",
   "crates/knotter-cli",

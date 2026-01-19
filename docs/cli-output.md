@@ -36,6 +36,12 @@ Output: JSON object matching `ReminderOutputDto`:
 - `today` (array of `ContactListItemDto`)
 - `soon` (array of `ContactListItemDto`)
 
+Note: `due_state` and reminder buckets depend on the current `due_soon_days`
+setting (CLI flag or config default). In JSON mode, notifications only run when
+`--notify` is provided explicitly. When `notifications.backend = "stdout"`,
+`--notify --json` returns a non-zero exit code because stdout notifications
+cannot run without corrupting JSON output.
+
 ### `knotter show <id> --json`
 
 Output: JSON object matching `ContactDetailDto`:
@@ -75,6 +81,9 @@ JSON output includes the created/updated entity:
 - Interaction mutations return a serialized `InteractionDto` object.
 
 Note: This output shape may be expanded in the future, but existing fields are stable.
+
+When `default_cadence_days` is set in config, `add-contact` uses it if
+`--cadence-days` is omitted.
 
 ### `knotter import vcf --json`
 

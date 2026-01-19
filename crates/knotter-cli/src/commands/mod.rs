@@ -1,4 +1,5 @@
 use anyhow::Result;
+use knotter_config::AppConfig;
 use knotter_store::Store;
 use serde::Serialize;
 
@@ -11,12 +12,12 @@ pub mod sync;
 pub mod tags;
 pub mod tui;
 
-pub const DEFAULT_SOON_DAYS: i64 = 7;
 pub const DEFAULT_INTERACTION_LIMIT: i64 = 20;
 
 pub struct Context<'a> {
     pub store: &'a Store,
     pub json: bool,
+    pub config: &'a AppConfig,
 }
 
 pub fn print_json<T: Serialize>(value: &T) -> Result<()> {
