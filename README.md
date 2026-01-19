@@ -74,6 +74,9 @@ JSON output is available for automation (see `docs/cli-output.md`).
 Launch:
 
 ```
+knotter tui
+
+# or run directly
 knotter-tui
 ```
 

@@ -12,7 +12,7 @@ use crate::app::{
 };
 
 pub fn draw(frame: &mut Frame<'_>, app: &App) {
-    let size = frame.size();
+    let size = frame.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([

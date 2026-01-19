@@ -327,7 +327,7 @@ Reminders:
   - [x] if `--notify` and feature `desktop-notify` enabled, trigger desktop notification backend; otherwise fall back to stdout
 
 TUI launcher:
-- [ ] `knotter tui`
+- [x] `knotter tui`
 
 Import/export:
 - [x] `knotter import vcf <file>`
@@ -449,12 +449,12 @@ Modals:
 ### E5. TUI docs + smoke checks
 - [x] Write `docs/KEYBINDINGS.md`
 - [x] Manual smoke check checklist doc (`docs/tui-smoke.md`):
-  - [ ] open TUI
-  - [ ] add contact
-  - [ ] add tag
-  - [ ] add note
-  - [ ] schedule touchpoint
-  - [ ] filter by `#tag` and `due:soon`
+  - [x] open TUI
+  - [x] add contact
+  - [x] add tag
+  - [x] add note
+  - [x] schedule touchpoint
+  - [x] filter by `#tag` and `due:soon`
 
 **DoD (Milestone E)**  
 TUI provides the same core workflows as CLI (at least add note, tags, schedule, filter).

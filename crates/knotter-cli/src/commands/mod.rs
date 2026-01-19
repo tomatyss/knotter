@@ -9,6 +9,7 @@ pub mod remind;
 pub mod schedule;
 pub mod sync;
 pub mod tags;
+pub mod tui;
 
 pub const DEFAULT_SOON_DAYS: i64 = 7;
 pub const DEFAULT_INTERACTION_LIMIT: i64 = 20;

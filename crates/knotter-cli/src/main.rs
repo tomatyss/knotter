@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use crate::commands::{backup, contacts, interactions, remind, schedule, sync, tags, Context};
+use crate::commands::{backup, contacts, interactions, remind, schedule, sync, tags, tui, Context};
 use knotter_core::{filter::FilterParseError, CoreError};
 use knotter_store::error::{StoreError, StoreErrorKind};
 use knotter_store::{paths, Store};
@@ -15,13 +15,13 @@ use knotter_store::{paths, Store};
 #[derive(Debug, Parser)]
 #[command(name = "knotter", version, about = "knotter CLI")]
 struct Cli {
-    #[arg(long)]
+    #[arg(long, global = true)]
     db_path: Option<PathBuf>,
-    #[arg(long)]
+    #[arg(long, global = true)]
     config: Option<PathBuf>,
-    #[arg(long)]
+    #[arg(long, global = true)]
     json: bool,
-    #[arg(long, short)]
+    #[arg(long, short, global = true)]
     verbose: bool,
     #[command(subcommand)]
     command: Command,
@@ -46,6 +46,7 @@ enum Command {
     #[command(name = "clear-schedule")]
     ClearSchedule(schedule::ClearScheduleArgs),
     Remind(remind::RemindArgs),
+    Tui(tui::TuiArgs),
     #[command(subcommand)]
     Import(sync::ImportCommand),
     #[command(subcommand)]
@@ -63,48 +64,61 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<()> {
-    let cli = Cli::parse();
+    let Cli {
+        db_path,
+        config,
+        json,
+        verbose,
+        command,
+    } = Cli::parse();
 
-    let db_path = paths::resolve_db_path(cli.db_path).with_context(|| "resolve database path")?;
+    match command {
+        Command::Tui(args) => tui::launch(db_path, args, verbose),
+        command => {
+            let db_path =
+                paths::resolve_db_path(db_path).with_context(|| "resolve database path")?;
 
-    if cli.verbose {
-        eprintln!("db: {}", db_path.display());
-    }
+            if verbose {
+                eprintln!("db: {}", db_path.display());
+            }
 
-    let store = Store::open(&db_path)?;
-    store.migrate()?;
+            let store = Store::open(&db_path)?;
+            store.migrate()?;
 
-    let _config_path = cli.config;
-    let ctx = Context {
-        store: &store,
-        json: cli.json,
-    };
+            let _config_path = config;
+            let ctx = Context {
+                store: &store,
+                json,
+            };
 
-    match cli.command {
-        Command::AddContact(args) => contacts::add_contact(&ctx, args),
-        Command::Backup(args) => backup::backup(&ctx, args),
-        Command::EditContact(args) => contacts::edit_contact(&ctx, args),
-        Command::Show(args) => contacts::show_contact(&ctx, args),
-        Command::List(args) => contacts::list_contacts(&ctx, args),
-        Command::Delete(args) => contacts::delete_contact(&ctx, args),
-        Command::Tag(cmd) => match cmd {
-            tags::TagCommand::Add(args) => tags::add_tag(&ctx, args),
-            tags::TagCommand::Rm(args) => tags::remove_tag(&ctx, args),
-            tags::TagCommand::Ls(args) => tags::list_tags(&ctx, args),
-        },
-        Command::AddNote(args) => interactions::add_note(&ctx, args),
-        Command::Touch(args) => interactions::touch_contact(&ctx, args),
-        Command::Schedule(args) => schedule::schedule_contact(&ctx, args),
-        Command::ClearSchedule(args) => schedule::clear_schedule(&ctx, args),
-        Command::Remind(args) => remind::remind(&ctx, args),
-        Command::Import(cmd) => match cmd {
-            sync::ImportCommand::Vcf(args) => sync::import_vcf(&ctx, args),
-        },
-        Command::Export(cmd) => match cmd {
-            sync::ExportCommand::Vcf(args) => sync::export_vcf(&ctx, args),
-            sync::ExportCommand::Ics(args) => sync::export_ics(&ctx, args),
-            sync::ExportCommand::Json(args) => sync::export_json(&ctx, args),
-        },
+            match command {
+                Command::AddContact(args) => contacts::add_contact(&ctx, args),
+                Command::Backup(args) => backup::backup(&ctx, args),
+                Command::EditContact(args) => contacts::edit_contact(&ctx, args),
+                Command::Show(args) => contacts::show_contact(&ctx, args),
+                Command::List(args) => contacts::list_contacts(&ctx, args),
+                Command::Delete(args) => contacts::delete_contact(&ctx, args),
+                Command::Tag(cmd) => match cmd {
+                    tags::TagCommand::Add(args) => tags::add_tag(&ctx, args),
+                    tags::TagCommand::Rm(args) => tags::remove_tag(&ctx, args),
+                    tags::TagCommand::Ls(args) => tags::list_tags(&ctx, args),
+                },
+                Command::AddNote(args) => interactions::add_note(&ctx, args),
+                Command::Touch(args) => interactions::touch_contact(&ctx, args),
+                Command::Schedule(args) => schedule::schedule_contact(&ctx, args),
+                Command::ClearSchedule(args) => schedule::clear_schedule(&ctx, args),
+                Command::Remind(args) => remind::remind(&ctx, args),
+                Command::Tui(_) => unreachable!("tui command handled before store initialization"),
+                Command::Import(cmd) => match cmd {
+                    sync::ImportCommand::Vcf(args) => sync::import_vcf(&ctx, args),
+                },
+                Command::Export(cmd) => match cmd {
+                    sync::ExportCommand::Vcf(args) => sync::export_vcf(&ctx, args),
+                    sync::ExportCommand::Ics(args) => sync::export_ics(&ctx, args),
+                    sync::ExportCommand::Json(args) => sync::export_json(&ctx, args),
+                },
+            }
+        }
     }
 }
 

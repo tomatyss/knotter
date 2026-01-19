@@ -22,6 +22,18 @@ The TUI should show a small “hint footer” with the most relevant keys for th
 
 For manual validation after UI changes, see [TUI Smoke Checklist](tui-smoke.md).
 
+Launch the TUI with:
+
+```
+knotter tui
+```
+
+Or run the binary directly:
+
+```
+knotter-tui
+```
+
 ---
 
 ## Global keys (work in all modes)
