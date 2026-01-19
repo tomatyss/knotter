@@ -1,6 +1,8 @@
-# Scheduling reminders
+# Scheduling Reminders
 
 knotter does not run a background daemon. Use your system scheduler to run reminders.
+
+For reminder output details, see [Knotter CLI Output](cli-output.md).
 
 ## Cron (daily at 09:00)
 

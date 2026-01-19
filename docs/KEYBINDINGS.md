@@ -1,4 +1,4 @@
-# docs/KEYBINDINGS.md
+# Keybindings
 
 ## Overview
 
@@ -19,6 +19,8 @@ Keybindings are designed to be:
 - accessible (arrow keys work everywhere; vim keys are optional)
 
 The TUI should show a small “hint footer” with the most relevant keys for the current mode.
+
+For manual validation after UI changes, see [TUI Smoke Checklist](tui-smoke.md).
 
 ---
 
@@ -318,4 +320,3 @@ knotter should display mode-appropriate hints such as:
 - Avoid making critical actions depend on terminal-specific combos like `Ctrl+Enter`.
 - Prefer explicit `[Save]` / `[Cancel]` buttons with `Tab` navigation.
 - Always restore terminal state on exit, panic, or ctrl-c.
-

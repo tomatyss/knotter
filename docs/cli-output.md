@@ -1,4 +1,4 @@
-# knotter CLI output
+# Knotter CLI Output
 
 This document defines the **stable output surface** for the CLI.
 
@@ -7,6 +7,10 @@ This document defines the **stable output surface** for the CLI.
 - IDs are UUID strings (lowercase hex with dashes).
 - Timestamps are unix seconds (UTC) in JSON output.
 - Human output is intended for terminals and may evolve; JSON output is the stable interface.
+
+Related docs:
+- [Scheduling](scheduling.md) for reminder automation.
+- [Import/Export](import-export.md) for vCard/ICS/JSON commands.
 
 ## JSON output
 

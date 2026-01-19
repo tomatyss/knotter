@@ -1,6 +1,7 @@
-# Import/export
+# Import and Export
 
 This document describes knotter's vCard (.vcf) and iCalendar (.ics) mappings.
+For stable CLI output expectations, see [Knotter CLI Output](cli-output.md).
 
 ## vCard import
 

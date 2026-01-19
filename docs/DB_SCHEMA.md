@@ -1,4 +1,4 @@
-# docs/DB_SCHEMA.md
+# Database Schema
 
 ## Overview
 
@@ -9,6 +9,8 @@ knotter stores all data locally in a single **SQLite** database file. The databa
 - efficient for the most common queries (due touchpoints, name search, tag filtering, interaction history)
 
 knotter intentionally keeps the schema small and stable. Most “behavior” lives in `knotter-core` business rules, not in triggers.
+
+For the broader design context, see [Architecture](ARCHITECTURE.md).
 
 ---
 
@@ -86,7 +88,7 @@ The migration runner is responsible for:
 - Avoid “rewrite everything” migrations.
 - Keep data transformations explicit and testable.
 - Always add indexes if a new query path is introduced.
-- When changing semantics, update `docs/ARCHITECTURE.md` and this doc.
+- When changing semantics, update [Architecture](ARCHITECTURE.md) and this doc.
 
 ---
 

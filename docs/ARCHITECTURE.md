@@ -1,4 +1,4 @@
-# knotter Architecture
+# Knotter Architecture
 
 knotter is a personal CRM / friendship-tracking tool designed for terminal-first workflows.
 It is built as an offline-first Rust application with a CLI and a TUI, backed by a portable SQLite database, with standards-based import/export.
@@ -309,7 +309,7 @@ Migration requirements:
 
 ### 6.3 Schema (MVP)
 
-The authoritative SQL schema lives in `docs/DB_SCHEMA.md`. Keep this document aligned with it.
+The authoritative SQL schema lives in [Database Schema](DB_SCHEMA.md). Keep this document aligned with it.
 
 Summary of MVP tables/indexes:
 * `knotter_schema(version)` for migration tracking.
