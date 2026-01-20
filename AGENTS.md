@@ -38,6 +38,7 @@ No build system is checked in yet. Once the Cargo workspace is created, use stan
 - Git history is empty; no commit-message convention is established.
 - Suggested commit style: short, imperative summary that describes intent (e.g., “Add store migrations”).
 - PRs should include: concise summary, testing performed, and notes on schema or data-model changes. Link related issues if applicable.
+- When bumping versions and tagging a release, update `Formula/knotter.rb` to match the new tag and SHA before pushing.
 
 ## Documentation Updates
 - Review docs after any behavior or API change and update relevant files in `docs/` and `README.md`.

@@ -28,15 +28,24 @@ fn fetch_contacts_vcf(group: Option<&str>) -> Result<String> {
 
     let script = r#"
 on run argv
+    set oldDelimiters to AppleScript's text item delimiters
+    set AppleScript's text item delimiters to linefeed
     tell application "Contacts"
         if (count of argv) is 0 then
-            return vcard of people
+            set cards to vcard of people
         else
             set targetGroup to item 1 of argv
             set targetGroupRef to first group whose name is targetGroup
-            return vcard of people of targetGroupRef
+            set cards to vcard of people of targetGroupRef
         end if
     end tell
+    if (count of cards) is 0 then
+        set joined to ""
+    else
+        set joined to cards as text
+    end if
+    set AppleScript's text item delimiters to oldDelimiters
+    return joined
 end run
 "#;
 
