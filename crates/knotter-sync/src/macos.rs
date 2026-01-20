@@ -30,15 +30,33 @@ fn fetch_contacts_vcf(group: Option<&str>) -> Result<String> {
 on run argv
     set oldDelimiters to AppleScript's text item delimiters
     set AppleScript's text item delimiters to linefeed
-    tell application "Contacts"
-        if (count of argv) is 0 then
-            set cards to vcard of people
-        else
-            set targetGroup to item 1 of argv
-            set targetGroupRef to first group whose name is targetGroup
-            set cards to vcard of people of targetGroupRef
-        end if
-    end tell
+    set cards to {}
+    set succeeded to false
+    repeat 5 times
+        try
+            tell application "Contacts"
+                if (count of argv) is 0 then
+                    set cards to vcard of people
+                else
+                    set targetGroup to item 1 of argv
+                    set targetGroupRef to first group whose name is targetGroup
+                    set cards to vcard of people of targetGroupRef
+                end if
+            end tell
+            set succeeded to true
+            exit repeat
+        on error errMsg number errNum
+            if errNum is -600 then
+                tell application "Contacts" to launch
+                delay 0.2
+            else
+                error errMsg number errNum
+            end if
+        end try
+    end repeat
+    if succeeded is false then
+        error "Contacts did not respond" number -600
+    end if
     if (count of cards) is 0 then
         set joined to ""
     else
