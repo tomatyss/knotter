@@ -140,6 +140,9 @@ fn run(cli: Cli) -> Result<()> {
                 }
                 Command::Import(cmd) => match cmd {
                     sync::ImportCommand::Vcf(args) => sync::import_vcf(&ctx, args),
+                    sync::ImportCommand::Macos(args) => sync::import_macos(&ctx, args),
+                    sync::ImportCommand::Carddav(args) => sync::import_carddav(&ctx, args),
+                    sync::ImportCommand::Source(args) => sync::import_source(&ctx, args),
                 },
                 Command::Export(cmd) => match cmd {
                     sync::ExportCommand::Vcf(args) => sync::export_vcf(&ctx, args),

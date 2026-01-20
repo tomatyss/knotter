@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -17,12 +18,51 @@ pub struct AppConfig {
     pub due_soon_days: i64,
     pub default_cadence_days: Option<i32>,
     pub notifications: NotificationsConfig,
+    pub contacts: ContactsConfig,
 }
 
 #[derive(Debug, Clone)]
 pub struct NotificationsConfig {
     pub enabled: bool,
     pub backend: NotificationBackend,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ContactsConfig {
+    pub sources: Vec<ContactSourceConfig>,
+}
+
+impl ContactsConfig {
+    pub fn source(&self, name: &str) -> Option<&ContactSourceConfig> {
+        let needle = normalize_source_name(name).ok()?;
+        self.sources.iter().find(|source| source.name == needle)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ContactSourceConfig {
+    pub name: String,
+    pub kind: ContactSourceKind,
+}
+
+#[derive(Debug, Clone)]
+pub enum ContactSourceKind {
+    Carddav(CardDavSourceConfig),
+    Macos(MacosSourceConfig),
+}
+
+#[derive(Debug, Clone)]
+pub struct CardDavSourceConfig {
+    pub url: String,
+    pub username: Option<String>,
+    pub password_env: Option<String>,
+    pub tag: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MacosSourceConfig {
+    pub group: Option<String>,
+    pub tag: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -41,6 +81,7 @@ impl Default for AppConfig {
                 enabled: false,
                 backend: NotificationBackend::Desktop,
             },
+            contacts: ContactsConfig::default(),
         }
     }
 }
@@ -59,6 +100,12 @@ pub enum ConfigError {
     InvalidSoonDays(i64),
     #[error("invalid default_cadence_days value: {0}")]
     InvalidCadenceDays(i32),
+    #[error("invalid contact source name: {0}")]
+    InvalidContactSourceName(String),
+    #[error("duplicate contact source name: {0}")]
+    DuplicateContactSourceName(String),
+    #[error("invalid contact source {source_name} field: {field}")]
+    InvalidContactSourceField { source_name: String, field: String },
     #[error("failed to read config file {path}: {source}")]
     Read {
         path: PathBuf,
@@ -81,6 +128,7 @@ struct ConfigFile {
     due_soon_days: Option<i64>,
     default_cadence_days: Option<i32>,
     notifications: Option<NotificationsFile>,
+    contacts: Option<ContactsFile>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -88,6 +136,29 @@ struct ConfigFile {
 struct NotificationsFile {
     enabled: Option<bool>,
     backend: Option<NotificationBackend>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ContactsFile {
+    sources: Option<Vec<ContactSourceFile>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+enum ContactSourceFile {
+    Carddav {
+        name: String,
+        url: String,
+        username: Option<String>,
+        password_env: Option<String>,
+        tag: Option<String>,
+    },
+    Macos {
+        name: String,
+        group: Option<String>,
+        tag: Option<String>,
+    },
 }
 
 pub fn load(config_path: Option<PathBuf>) -> Result<AppConfig> {
@@ -173,7 +244,114 @@ fn merge_config(parsed: ConfigFile) -> Result<AppConfig> {
         }
     }
 
+    if let Some(contacts) = parsed.contacts {
+        if let Some(sources) = contacts.sources {
+            let mut seen: HashSet<String> = HashSet::new();
+            for source in sources {
+                let (name, kind) = match source {
+                    ContactSourceFile::Carddav {
+                        name,
+                        url,
+                        username,
+                        password_env,
+                        tag,
+                    } => {
+                        let name = normalize_source_name(&name)?;
+                        let url = normalize_required_string(url, &name, "url")?;
+                        let username = normalize_optional_string(username).ok_or_else(|| {
+                            ConfigError::InvalidContactSourceField {
+                                source_name: name.clone(),
+                                field: "username".to_string(),
+                            }
+                        })?;
+                        let password_env = normalize_optional_string(password_env);
+                        let tag = normalize_optional_tag(tag, &name)?;
+                        (
+                            name,
+                            ContactSourceKind::Carddav(CardDavSourceConfig {
+                                url,
+                                username: Some(username),
+                                password_env,
+                                tag,
+                            }),
+                        )
+                    }
+                    ContactSourceFile::Macos { name, group, tag } => {
+                        let name = normalize_source_name(&name)?;
+                        let group = normalize_optional_string(group);
+                        let tag = normalize_optional_tag(tag, &name)?;
+                        (
+                            name,
+                            ContactSourceKind::Macos(MacosSourceConfig { group, tag }),
+                        )
+                    }
+                };
+
+                if !seen.insert(name.clone()) {
+                    return Err(ConfigError::DuplicateContactSourceName(name));
+                }
+
+                config
+                    .contacts
+                    .sources
+                    .push(ContactSourceConfig { name, kind });
+            }
+        }
+    }
+
     Ok(config)
+}
+
+fn normalize_source_name(name: &str) -> Result<String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err(ConfigError::InvalidContactSourceName(name.to_string()));
+    }
+    Ok(trimmed.to_ascii_lowercase())
+}
+
+fn normalize_optional_string(value: Option<String>) -> Option<String> {
+    value.and_then(|raw| {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn normalize_optional_tag(value: Option<String>, source_name: &str) -> Result<Option<String>> {
+    match value {
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                return Err(ConfigError::InvalidContactSourceField {
+                    source_name: source_name.to_string(),
+                    field: "tag".to_string(),
+                });
+            }
+            let tag = knotter_core::domain::TagName::new(trimmed).map_err(|_| {
+                ConfigError::InvalidContactSourceField {
+                    source_name: source_name.to_string(),
+                    field: "tag".to_string(),
+                }
+            })?;
+            Ok(Some(tag.as_str().to_string()))
+        }
+        None => Ok(None),
+    }
+}
+
+fn normalize_required_string(value: String, source: &str, field: &str) -> Result<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(ConfigError::InvalidContactSourceField {
+            source_name: source.to_string(),
+            field: field.to_string(),
+        });
+    }
+    Ok(trimmed.to_string())
 }
 
 #[cfg(unix)]
@@ -198,7 +376,10 @@ fn ensure_permissions(_path: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{load_at_path, merge_config, ConfigFile, NotificationBackend, NotificationsFile};
+    use super::{
+        load_at_path, merge_config, CardDavSourceConfig, ConfigFile, ContactSourceFile,
+        ContactSourceKind, ContactsFile, MacosSourceConfig, NotificationBackend, NotificationsFile,
+    };
     use std::fs;
     use std::path::Path;
     use tempfile::TempDir;
@@ -222,12 +403,174 @@ mod tests {
                 enabled: Some(true),
                 backend: Some(NotificationBackend::Desktop),
             }),
+            contacts: None,
         };
         let merged = merge_config(parsed).expect("merge");
         assert_eq!(merged.due_soon_days, 3);
         assert_eq!(merged.default_cadence_days, Some(14));
         assert!(merged.notifications.enabled);
         assert_eq!(merged.notifications.backend, NotificationBackend::Desktop);
+    }
+
+    #[test]
+    fn merge_config_parses_contact_sources() {
+        let parsed = ConfigFile {
+            due_soon_days: None,
+            default_cadence_days: None,
+            notifications: None,
+            contacts: Some(ContactsFile {
+                sources: Some(vec![
+                    ContactSourceFile::Carddav {
+                        name: "Gmail".to_string(),
+                        url: "https://example.test/carddav/".to_string(),
+                        username: Some("user@example.com".to_string()),
+                        password_env: Some("KNOTTER_GMAIL_PASSWORD".to_string()),
+                        tag: Some("gmail".to_string()),
+                    },
+                    ContactSourceFile::Macos {
+                        name: "Local".to_string(),
+                        group: Some("Friends".to_string()),
+                        tag: None,
+                    },
+                ]),
+            }),
+        };
+
+        let merged = merge_config(parsed).expect("merge");
+        assert_eq!(merged.contacts.sources.len(), 2);
+        let gmail = &merged.contacts.sources[0];
+        assert_eq!(gmail.name, "gmail");
+        match &gmail.kind {
+            ContactSourceKind::Carddav(CardDavSourceConfig { url, username, .. }) => {
+                assert_eq!(url, "https://example.test/carddav/");
+                assert_eq!(username.as_deref(), Some("user@example.com"));
+            }
+            _ => panic!("expected carddav"),
+        }
+        let local = &merged.contacts.sources[1];
+        match &local.kind {
+            ContactSourceKind::Macos(MacosSourceConfig { group, .. }) => {
+                assert_eq!(group.as_deref(), Some("Friends"));
+            }
+            _ => panic!("expected macos"),
+        }
+    }
+
+    #[test]
+    fn merge_config_rejects_duplicate_sources() {
+        let parsed = ConfigFile {
+            due_soon_days: None,
+            default_cadence_days: None,
+            notifications: None,
+            contacts: Some(ContactsFile {
+                sources: Some(vec![
+                    ContactSourceFile::Macos {
+                        name: "Primary".to_string(),
+                        group: None,
+                        tag: None,
+                    },
+                    ContactSourceFile::Macos {
+                        name: "primary".to_string(),
+                        group: None,
+                        tag: None,
+                    },
+                ]),
+            }),
+        };
+
+        let err = merge_config(parsed).unwrap_err();
+        assert!(err.to_string().contains("duplicate contact source name"));
+    }
+
+    #[test]
+    fn merge_config_rejects_empty_carddav_url() {
+        let parsed = ConfigFile {
+            due_soon_days: None,
+            default_cadence_days: None,
+            notifications: None,
+            contacts: Some(ContactsFile {
+                sources: Some(vec![ContactSourceFile::Carddav {
+                    name: "Gmail".to_string(),
+                    url: "   ".to_string(),
+                    username: Some("user@example.com".to_string()),
+                    password_env: Some("KNOTTER_GMAIL_PASSWORD".to_string()),
+                    tag: None,
+                }]),
+            }),
+        };
+
+        let err = merge_config(parsed).unwrap_err();
+        assert!(err.to_string().contains("invalid contact source"));
+    }
+
+    #[test]
+    fn merge_config_trims_optional_contact_fields() {
+        let parsed = ConfigFile {
+            due_soon_days: None,
+            default_cadence_days: None,
+            notifications: None,
+            contacts: Some(ContactsFile {
+                sources: Some(vec![ContactSourceFile::Carddav {
+                    name: "Gmail".to_string(),
+                    url: "https://example.test/carddav/".to_string(),
+                    username: Some("user@example.com".to_string()),
+                    password_env: Some("".to_string()),
+                    tag: Some("friends".to_string()),
+                }]),
+            }),
+        };
+
+        let merged = merge_config(parsed).expect("merge");
+        let source = merged.contacts.sources.first().expect("source");
+        match &source.kind {
+            ContactSourceKind::Carddav(CardDavSourceConfig {
+                password_env, tag, ..
+            }) => {
+                assert!(password_env.is_none());
+                assert_eq!(tag.as_deref(), Some("friends"));
+            }
+            _ => panic!("expected carddav"),
+        }
+    }
+
+    #[test]
+    fn merge_config_rejects_missing_carddav_username() {
+        let parsed = ConfigFile {
+            due_soon_days: None,
+            default_cadence_days: None,
+            notifications: None,
+            contacts: Some(ContactsFile {
+                sources: Some(vec![ContactSourceFile::Carddav {
+                    name: "Gmail".to_string(),
+                    url: "https://example.test/carddav/".to_string(),
+                    username: Some("   ".to_string()),
+                    password_env: None,
+                    tag: None,
+                }]),
+            }),
+        };
+
+        let err = merge_config(parsed).unwrap_err();
+        assert!(err.to_string().contains("username"));
+    }
+
+    #[test]
+    fn merge_config_rejects_empty_contact_tag() {
+        let parsed = ConfigFile {
+            due_soon_days: None,
+            default_cadence_days: None,
+            notifications: None,
+            contacts: Some(ContactsFile {
+                sources: Some(vec![ContactSourceFile::Macos {
+                    name: "Local".to_string(),
+                    group: None,
+                    tag: Some("   ".to_string()),
+                }]),
+            }),
+        };
+
+        let err = merge_config(parsed).unwrap_err();
+        assert!(err.to_string().contains("tag"));
     }
 
     #[test]

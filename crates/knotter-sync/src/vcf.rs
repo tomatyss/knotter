@@ -9,6 +9,7 @@ pub struct ImportReport {
     pub updated: usize,
     pub skipped: usize,
     pub warnings: Vec<String>,
+    pub dry_run: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -248,9 +249,10 @@ impl RawCard {
 }
 
 fn unfold_lines(input: &str) -> Vec<String> {
+    let input = normalize_line_endings(input);
     let mut lines: Vec<String> = Vec::new();
     for raw in input.lines() {
-        let line = raw.trim_end_matches('\r');
+        let line = raw;
         if line.starts_with(' ') || line.starts_with('\t') {
             if let Some(last) = lines.last_mut() {
                 last.push_str(&line[1..]);
@@ -262,6 +264,26 @@ fn unfold_lines(input: &str) -> Vec<String> {
         }
     }
     lines
+}
+
+fn normalize_line_endings(input: &str) -> std::borrow::Cow<'_, str> {
+    if !input.contains('\r') {
+        return std::borrow::Cow::Borrowed(input);
+    }
+
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\r' {
+            if matches!(chars.peek(), Some('\n')) {
+                chars.next();
+            }
+            out.push('\n');
+        } else {
+            out.push(ch);
+        }
+    }
+    std::borrow::Cow::Owned(out)
 }
 
 fn split_property(line: &str) -> Option<(String, String)> {
@@ -386,6 +408,16 @@ mod tests {
             .collect();
         assert!(tags.contains(&"friends,family"));
         assert!(tags.contains(&"work"));
+    }
+
+    #[test]
+    fn parse_vcf_handles_cr_only_line_endings() {
+        let data = "BEGIN:VCARD\rVERSION:3.0\rFN:Jane Doe\rEMAIL:jane@example.com\rEND:VCARD\r";
+        let parsed = parse_vcf(data).expect("parse");
+        assert_eq!(parsed.contacts.len(), 1);
+        let contact = &parsed.contacts[0];
+        assert_eq!(contact.display_name, "Jane Doe");
+        assert_eq!(contact.email.as_deref(), Some("jane@example.com"));
     }
 
     #[test]

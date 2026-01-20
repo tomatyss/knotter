@@ -26,6 +26,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 [features]
 default = []
 desktop-notify = ["notify-rust"]
+dav-sync = ["knotter-sync/dav-sync"]
 
 [package.metadata.deb]
 maintainer = "Tomatyss <tomatyss@users.noreply.github.com>"

@@ -479,6 +479,8 @@ TUI provides the same core workflows as CLI (at least add note, tags, schedule, 
   - [x] updated
   - [x] skipped
   - [x] warnings (missing FN, invalid tags, etc.)
+- [x] macOS Contacts import (Contacts app vCard export)
+- [x] CardDAV import (feature `dav-sync`)
 
 ### F2. vCard export
 - [x] Export all contacts as vCards:

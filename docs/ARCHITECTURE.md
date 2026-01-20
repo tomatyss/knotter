@@ -422,6 +422,14 @@ Import should return a report:
 * skipped_count
 * warnings (invalid tags, missing FN, etc.)
 
+#### Contact sources (macOS + CardDAV)
+
+Additional sources should convert their data into vCard payloads and reuse the
+existing vCard import pipeline. This keeps dedupe logic and mapping consistent.
+
+* macOS Contacts: fetch vCards via the Contacts app (AppleScript / Contacts framework).
+* CardDAV providers (Gmail, iCloud, etc.): fetch addressbook vCards via CardDAV REPORT.
+
 #### Export strategy (MVP)
 
 * For each contact:
@@ -668,6 +676,29 @@ Config keys (MVP):
 * `notifications.enabled = true/false`
 * `notifications.backend = "stdout" | "desktop" | "email"` (MVP: stdout/desktop)
 
+Contact source config (optional):
+
+```
+[contacts]
+[[contacts.sources]]
+name = "gmail"
+type = "carddav"
+url = "https://example.test/carddav/addressbook/"
+username = "user@example.com"
+password_env = "KNOTTER_GMAIL_PASSWORD"
+tag = "gmail"
+
+[[contacts.sources]]
+name = "local"
+type = "macos"
+group = "Friends"
+tag = "personal"
+```
+
+Notes:
+* `password_env` points to an environment variable so passwords are not stored in plaintext.
+* `name` is case-insensitive and must be unique.
+
 On Unix, config files must be user-readable only (e.g., `chmod 600`).
 
 Config parsing lives outside core (store/cli/tui).
@@ -729,7 +760,7 @@ To keep the binary lean and portable:
   * enables desktop notifications backend
 * `dav-sync` feature:
 
-  * enables CardDAV/CalDAV code (post-MVP)
+  * enables CardDAV import code (post-MVP sync)
 
 The default build should remain fully usable without these.
 
@@ -738,6 +769,8 @@ The default build should remain fully usable without these.
 ## 16. Future: CardDAV/CalDAV sync (post-MVP)
 
 knotter’s sync design should fit this pattern:
+
+* CardDAV import exists (one-way) behind `dav-sync`; full bidirectional sync remains post-MVP.
 
 * A `Source` abstraction for contacts/events:
 

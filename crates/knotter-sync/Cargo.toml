@@ -8,3 +8,10 @@ knotter-core = { path = "../knotter-core" }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
+quick-xml = { version = "0.31", optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"], optional = true }
+url = { version = "2", optional = true }
+
+[features]
+default = []
+dav-sync = ["dep:quick-xml", "dep:reqwest", "dep:url"]

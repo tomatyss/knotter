@@ -90,6 +90,9 @@ fn config_exit_code(err: &ConfigError) -> u8 {
         | ConfigError::InsecurePermissions(_)
         | ConfigError::InvalidSoonDays(_)
         | ConfigError::InvalidCadenceDays(_)
+        | ConfigError::InvalidContactSourceName(_)
+        | ConfigError::DuplicateContactSourceName(_)
+        | ConfigError::InvalidContactSourceField { .. }
         | ConfigError::Read { .. }
         | ConfigError::Parse { .. } => EXIT_INVALID_INPUT,
     }
@@ -97,7 +100,12 @@ fn config_exit_code(err: &ConfigError) -> u8 {
 
 fn sync_exit_code(err: &SyncError) -> u8 {
     match err {
-        SyncError::Io(_) => EXIT_FAILURE,
+        SyncError::Unavailable(_) => EXIT_INVALID_INPUT,
+        SyncError::Command(_) | SyncError::Io(_) => EXIT_FAILURE,
         SyncError::Core(_) | SyncError::Parse(_) => EXIT_INVALID_INPUT,
+        #[cfg(feature = "dav-sync")]
+        SyncError::Http(_) => EXIT_FAILURE,
+        #[cfg(feature = "dav-sync")]
+        SyncError::Url(_) => EXIT_INVALID_INPUT,
     }
 }

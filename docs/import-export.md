@@ -11,6 +11,14 @@ Command:
 knotter import vcf <file>
 ```
 
+Optional flags:
+
+```
+--dry-run          # parse + dedupe, but do not write to the DB
+--limit <N>        # only process the first N contacts
+--tag <tag>        # add an extra tag to all imported contacts (repeatable)
+```
+
 ### Mapping rules
 
 - `FN` → `display_name` (required)
@@ -34,6 +42,67 @@ Import reports include warnings for:
 - missing `FN`
 - invalid tag values
 - invalid `X-KNOTTER-*` values
+
+## macOS Contacts import
+
+Command:
+
+```
+knotter import macos
+```
+
+Optional flags:
+
+```
+--group <name>     # only import contacts from a specific Contacts.app group
+--dry-run
+--limit <N>
+--tag <tag>
+```
+
+Notes:
+
+- The first run will prompt for Contacts access on macOS.
+- The import uses the same vCard mapping rules and dedupe policy as `import vcf`.
+
+## CardDAV import (Gmail, iCloud, and other providers)
+
+Command:
+
+```
+knotter import carddav --url <addressbook-url> --username <user> --password-env <ENV>
+```
+
+Alternative password input:
+
+```
+echo "app-password" | knotter import carddav --url <addressbook-url> --username <user> --password-stdin
+```
+
+Optional flags:
+
+```
+--dry-run
+--limit <N>
+--tag <tag>
+```
+
+Notes:
+
+- Use the provider’s CardDAV addressbook URL (often listed in their settings docs).
+- Some providers require an app-specific password when 2FA is enabled.
+- CardDAV import requires the `dav-sync` feature at build time.
+
+## Import sources from config
+
+When you configure contact sources in `config.toml`, you can run:
+
+```
+knotter import source <name>
+```
+
+The config source can be `carddav` or `macos`, and may include a default `tag`.
+See the configuration section in `docs/ARCHITECTURE.md` for the schema.
 
 ## vCard export
 

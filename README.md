@@ -43,6 +43,7 @@ Common dev commands:
 - Test: `cargo test`
 - Format: `cargo fmt`
 - Lint: `cargo clippy --all-targets --all-features -D warnings`
+- Precommit checks: `just precommit`
 
 ## CLI basics
 
@@ -103,11 +104,13 @@ Common keys (full list in `docs/KEYBINDINGS.md`):
 ## Import/export
 
 - Import vCard: `knotter import vcf <file>`
+- Import macOS Contacts: `knotter import macos`
+- Import CardDAV (Gmail/iCloud/etc.): `knotter import carddav --url <addressbook-url> --username <user> --password-env <ENV>`
 - Export vCard: `knotter export vcf --out <file>`
 - Export touchpoints (ICS): `knotter export ics --out <file>`
 - Export full JSON snapshot: `knotter export json --out <file>` (add `--exclude-archived` to omit archived)
 
-See `docs/import-export.md` for mapping details.
+CardDAV import requires building with the `dav-sync` feature. See `docs/import-export.md` for mapping details.
 
 ## Reminders
 
@@ -138,6 +141,19 @@ backend = "stdout" # or "desktop"
 ```
 
 On Unix, the config file must be user-readable only (`chmod 600`).
+
+Contact source profiles can also live in config (see `docs/ARCHITECTURE.md`):
+
+```
+[contacts]
+[[contacts.sources]]
+name = "gmail"
+type = "carddav"
+url = "https://example.test/carddav/addressbook/"
+username = "user@example.com"
+password_env = "KNOTTER_GMAIL_PASSWORD"
+tag = "gmail"
+```
 
 ## Data location
 

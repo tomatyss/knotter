@@ -94,6 +94,9 @@ Output: JSON object matching `ImportReport`:
 - `updated` (number)
 - `skipped` (number)
 - `warnings` (array of strings)
+- `dry_run` (boolean)
+
+The same output shape is used for `import macos`, `import carddav`, and `import source`.
 
 ### `knotter export vcf/ics --json`
 

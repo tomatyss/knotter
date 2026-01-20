@@ -93,6 +93,79 @@ fn cli_completions_bash_emits_output() {
 }
 
 #[test]
+fn cli_import_vcf_dry_run_skips_writes() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let vcf_path = temp.path().join("contacts.vcf");
+
+    std::fs::write(
+        &vcf_path,
+        "BEGIN:VCARD\nVERSION:3.0\nFN:Ada Lovelace\nEMAIL:ada@example.com\nEND:VCARD\n",
+    )
+    .expect("write vcf");
+
+    let output = run_cmd_json(
+        &db_path,
+        &[
+            "import",
+            "vcf",
+            "--dry-run",
+            vcf_path.to_str().expect("vcf path"),
+        ],
+    );
+    assert_eq!(output["created"], 1);
+    assert_eq!(output["updated"], 0);
+    assert_eq!(output["skipped"], 0);
+    assert_eq!(output["dry_run"], true);
+
+    let list = run_cmd_json(&db_path, &["list"]);
+    assert!(list.as_array().expect("array").is_empty());
+}
+
+#[test]
+#[cfg(not(feature = "dav-sync"))]
+fn cli_import_source_requires_dav_sync() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let config_path = temp.path().join("config.toml");
+
+    std::fs::write(
+        &config_path,
+        r#"
+[contacts]
+[[contacts.sources]]
+name = "gmail"
+type = "carddav"
+url = "https://example.test/carddav/"
+username = "user@example.com"
+password_env = "KNOTTER_GMAIL_PASSWORD"
+"#,
+    )
+    .expect("write config");
+    restrict_config_permissions(&config_path);
+
+    let output = cargo_bin_cmd!("knotter")
+        .args([
+            "--db-path",
+            db_path.to_str().expect("db path"),
+            "--config",
+            config_path.to_str().expect("config path"),
+            "import",
+            "source",
+            "gmail",
+            "--dry-run",
+        ])
+        .env("KNOTTER_GMAIL_PASSWORD", "secret")
+        .output()
+        .expect("run command");
+
+    assert!(!output.status.success());
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("dav-sync"));
+}
+
+#[test]
 fn cli_add_list_tag_schedule_flow() {
     let temp = TempDir::new().expect("temp dir");
     let db_path = temp.path().join("knotter.sqlite3");
