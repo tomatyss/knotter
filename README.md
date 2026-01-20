@@ -69,6 +69,16 @@ knotter add-note <id> --kind call --note "Caught up after the conference"
 
 JSON output is available for automation (see `docs/cli-output.md`).
 
+## Shell completions
+
+Generate and install shell completions:
+
+```
+knotter completions bash > ~/.local/share/bash-completion/completions/knotter
+```
+
+See `docs/completions.md` for the full list of supported shells and install steps.
+
 ## TUI basics
 
 Launch:

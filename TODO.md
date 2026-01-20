@@ -576,8 +576,8 @@ Daily reminders can be scheduled externally; notifications are optional and safe
   - [x] full snapshot for portability
 
 ### H3. Shell completions (optional MVP)
-- [ ] Generate completion scripts via CLI framework tooling
-- [ ] Document how to install completions
+- [x] Generate completion scripts via CLI framework tooling (`knotter completions`)
+- [x] Document how to install completions
 
 ### H4. Robustness and ergonomics
 - [x] Ensure all CLI commands have consistent error messages

@@ -9,7 +9,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use tracing::debug;
 
-use crate::commands::{backup, contacts, interactions, remind, schedule, sync, tags, tui, Context};
+use crate::commands::{
+    backup, completions, contacts, interactions, remind, schedule, sync, tags, tui, Context,
+};
 use crate::error::{exit_code_for, report_error};
 use knotter_config as config;
 use knotter_store::{paths, Store};
@@ -32,6 +34,8 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     Backup(backup::BackupArgs),
+    /// Generate shell completions
+    Completions(completions::CompletionsArgs),
     #[command(name = "add-contact")]
     AddContact(contacts::AddContactArgs),
     #[command(name = "edit-contact")]
@@ -79,6 +83,7 @@ fn run(cli: Cli) -> Result<()> {
 
     match command {
         Command::Tui(args) => tui::launch(db_path, config_path, args, verbose),
+        Command::Completions(args) => completions::emit(args),
         command => {
             let app_config = config::load(config_path.clone()).with_context(|| "load config")?;
             if verbose {
@@ -130,6 +135,9 @@ fn run(cli: Cli) -> Result<()> {
                 Command::ClearSchedule(args) => schedule::clear_schedule(&ctx, args),
                 Command::Remind(args) => remind::remind(&ctx, args),
                 Command::Tui(_) => unreachable!("tui command handled before store initialization"),
+                Command::Completions(_) => {
+                    unreachable!("completions command handled before store initialization")
+                }
                 Command::Import(cmd) => match cmd {
                     sync::ImportCommand::Vcf(args) => sync::import_vcf(&ctx, args),
                 },

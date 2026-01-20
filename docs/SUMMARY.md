@@ -4,6 +4,7 @@
 - [Architecture](ARCHITECTURE.md)
 - [Database Schema](DB_SCHEMA.md)
 - [CLI Output](cli-output.md)
+- [Shell Completions](completions.md)
 - [Scheduling](scheduling.md)
 - [Import/Export](import-export.md)
 - [Keybindings](KEYBINDINGS.md)

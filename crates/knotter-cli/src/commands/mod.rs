@@ -5,6 +5,7 @@ use serde::Serialize;
 use std::io::{self, Write};
 
 pub mod backup;
+pub mod completions;
 pub mod contacts;
 pub mod interactions;
 pub mod remind;

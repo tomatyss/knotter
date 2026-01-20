@@ -11,6 +11,7 @@ For a quickstart, see the repository README.
 - [Architecture](ARCHITECTURE.md) for the system layout and boundaries.
 - [Database Schema](DB_SCHEMA.md) for the SQLite schema and migration rules.
 - [CLI Output](cli-output.md) for the stable JSON/human output contract.
+- [Shell Completions](completions.md) for installing tab completion scripts.
 - [Scheduling](scheduling.md) for reminder automation.
 - [Import/Export](import-export.md) for vCard/ICS/JSON snapshot behavior.
 - [Keybindings](KEYBINDINGS.md) for TUI navigation.

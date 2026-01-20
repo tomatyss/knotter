@@ -81,6 +81,18 @@ fn restrict_config_permissions(path: &Path) {
 }
 
 #[test]
+fn cli_completions_bash_emits_output() {
+    let output = cargo_bin_cmd!("knotter")
+        .args(["completions", "bash"])
+        .output()
+        .expect("run completions");
+    assert!(output.status.success(), "command failed: {:?}", output);
+    let stdout = String::from_utf8(output.stdout).expect("utf8");
+    assert!(!stdout.trim().is_empty());
+    assert!(stdout.contains("knotter"));
+}
+
+#[test]
 fn cli_add_list_tag_schedule_flow() {
     let temp = TempDir::new().expect("temp dir");
     let db_path = temp.path().join("knotter.sqlite3");
