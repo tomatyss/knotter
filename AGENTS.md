@@ -10,12 +10,20 @@ No build system is checked in yet. Once the Cargo workspace is created, use stan
 - `cargo test` — run unit/integration tests.
 - `cargo fmt` / `cargo fmt --check` — format code.
 - `cargo clippy --all-targets --all-features -D warnings` — lint.
-- After any code updates, run `just precommit` and fix any issues it reports.
+- After any update (code or docs), run `just precommit` and fix any issues it reports.
 
 ## Coding Style & Naming Conventions
 - Language: Rust. Prefer `rustfmt` defaults (4-space indentation; wrap by formatter).
 - Crates follow the `knotter-*` naming pattern; modules and files use `snake_case`.
 - Keep UI crates (`knotter-cli`, `knotter-tui`) thin; domain rules live in `knotter-core`.
+- Favor idiomatic Rust patterns (ownership-first APIs, explicit errors, minimal `unwrap`).
+- Keep code files under 300 lines; split modules when they grow.
+- Avoid unnecessary abstractions; prefer simple, readable implementations.
+- Document public APIs and complex logic with clear comments/docstrings.
+
+## Maintainability & Technical Debt
+- Refactor incrementally to keep complexity down and avoid monolith modules.
+- Prefer small, testable units over deep inheritance or generic layers.
 
 ## Testing Guidelines
 - Use Rust’s built-in test harness (`#[test]`).
@@ -24,11 +32,16 @@ No build system is checked in yet. Once the Cargo workspace is created, use stan
   - `knotter-store`: migrations + CRUD + filter queries.
   - `knotter-sync`: vCard/ICS import-export round-trips.
 - Run all tests with `cargo test`. No coverage threshold is defined yet.
+- Add or update tests for new features and bug fixes.
 
 ## Commit & Pull Request Guidelines
 - Git history is empty; no commit-message convention is established.
-- Suggested commit style: short, imperative summary (e.g., “Add store migrations”).
+- Suggested commit style: short, imperative summary that describes intent (e.g., “Add store migrations”).
 - PRs should include: concise summary, testing performed, and notes on schema or data-model changes. Link related issues if applicable.
+
+## Documentation Updates
+- Review docs after any behavior or API change and update relevant files in `docs/` and `README.md`.
+- Keep `docs/ARCHITECTURE.md`, `docs/DB_SCHEMA.md`, and `docs/cli-output.md` aligned with the codebase.
 
 ## Work Log & Context
 - Maintain a lightweight development log (e.g., `docs/LOG.md` or similar) and keep it current.
@@ -52,3 +65,7 @@ Working set (files/ids/commands):
 ## Security & Configuration Tips
 - The app stores personal contact data locally; avoid logging sensitive fields by default.
 - Data paths follow XDG conventions (see `docs/ARCHITECTURE.md`).
+
+## Dependency Hygiene
+- Keep dependencies up to date and remove unused ones.
+- Prefer fewer, well-supported crates over bespoke helpers unless necessary.

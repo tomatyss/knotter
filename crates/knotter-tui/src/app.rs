@@ -414,9 +414,15 @@ impl App {
             KeyCode::Enter => match editor.focus {
                 TagEditorFocus::Filter => {
                     if !editor.filter.trim().is_empty() {
-                        let name = editor.filter.trim().to_string();
-                        editor.toggle_tag(&name);
-                        editor.filter.clear();
+                        let raw = editor.filter.trim();
+                        match TagName::new(raw) {
+                            Ok(tag) => {
+                                let name = tag.as_str().to_string();
+                                editor.toggle_tag(&name);
+                                editor.filter.clear();
+                            }
+                            Err(err) => self.set_error(err.to_string()),
+                        }
                     }
                 }
                 TagEditorFocus::List => editor.toggle_selected(),
@@ -429,6 +435,7 @@ impl App {
                 },
                 TagEditorFocus::Cancel => return Some(Mode::List),
             },
+            KeyCode::Char(' ') if editor.focus == TagEditorFocus::List => editor.toggle_selected(),
             KeyCode::Up | KeyCode::Char('k') => editor.move_selection(-1),
             KeyCode::Down | KeyCode::Char('j') => editor.move_selection(1),
             _ => {

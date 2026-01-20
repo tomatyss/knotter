@@ -276,10 +276,11 @@ This modal manages the tag set for a contact.
 - Navigation:
   - `↑`/`↓`, `j`/`k` move in the tag list
 - Toggle tag attachment:
-  - `Space` toggles selected tag on/off for this contact
+  - `Space` or `Enter` toggles the selected tag on/off for this contact
 - Create new tag:
   - Type in tag input
   - `Enter` creates the tag (normalized) and toggles it on
+  - Invalid tags surface an error and leave the input intact
 - Save:
   - `Tab` to `[Save]`, `Enter`
 - Cancel:
