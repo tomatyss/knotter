@@ -1,6 +1,7 @@
 use crate::commands::{print_json, Context};
+use crate::error::invalid_input;
 use crate::util::{format_interaction_kind, now_utc};
-use anyhow::{anyhow, Context as _, Result};
+use anyhow::{Context as _, Result};
 use clap::{Args, Subcommand};
 use knotter_core::domain::{ContactId, TagName};
 use knotter_core::dto::{
@@ -134,7 +135,7 @@ pub fn export_vcf(ctx: &Context<'_>, args: ExportVcfArgs) -> Result<()> {
 pub fn export_ics(ctx: &Context<'_>, args: ExportIcsArgs) -> Result<()> {
     if let Some(days) = args.window_days {
         if days <= 0 {
-            return Err(anyhow!("--window-days must be positive"));
+            return Err(invalid_input("--window-days must be positive"));
         }
     }
 
@@ -258,7 +259,7 @@ fn write_export(
     data: &str,
 ) -> Result<()> {
     if ctx.json && out.is_none() {
-        return Err(anyhow!("--json requires --out for export commands"));
+        return Err(invalid_input("--json requires --out for export commands"));
     }
 
     match out {

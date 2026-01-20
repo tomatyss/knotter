@@ -1,5 +1,6 @@
 use assert_cmd::cargo::cargo_bin_cmd;
 use chrono::{Duration, Local};
+use knotter_core::domain::ContactId;
 use knotter_core::rules::MAX_SOON_DAYS;
 use knotter_store::repo::ContactUpdate;
 use knotter_store::Store;
@@ -320,6 +321,40 @@ fn cli_export_ics_writes_file() {
     let contents = std::fs::read_to_string(&out_path).expect("read ics");
     assert!(contents.contains("BEGIN:VEVENT"));
     assert!(contents.contains("SUMMARY:Reach out to Ada Lovelace"));
+}
+
+#[test]
+fn cli_invalid_filter_returns_exit_code_3() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+
+    let output = run_cmd_output(&db_path, &["list", "--filter", "due:later"]);
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid due selector"));
+}
+
+#[test]
+fn cli_show_missing_contact_returns_exit_code_2() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let missing = ContactId::new().to_string();
+
+    let output = run_cmd_output(&db_path, &["show", &missing]);
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("contact not found"));
+}
+
+#[test]
+fn cli_export_ics_invalid_window_returns_exit_code_3() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+
+    let output = run_cmd_output(&db_path, &["export", "ics", "--window-days", "0"]);
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("--window-days must be positive"));
 }
 
 #[test]

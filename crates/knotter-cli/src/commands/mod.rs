@@ -2,6 +2,7 @@ use anyhow::Result;
 use knotter_config::AppConfig;
 use knotter_store::Store;
 use serde::Serialize;
+use std::io::{self, Write};
 
 pub mod backup;
 pub mod contacts;
@@ -21,7 +22,8 @@ pub struct Context<'a> {
 }
 
 pub fn print_json<T: Serialize>(value: &T) -> Result<()> {
-    let output = serde_json::to_string_pretty(value)?;
-    println!("{}", output);
+    let mut stdout = io::stdout().lock();
+    serde_json::to_writer_pretty(&mut stdout, value)?;
+    writeln!(stdout)?;
     Ok(())
 }

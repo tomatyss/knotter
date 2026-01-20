@@ -1,9 +1,10 @@
 use crate::commands::{print_json, Context, DEFAULT_INTERACTION_LIMIT};
+use crate::error::{invalid_input, not_found};
 use crate::util::{
     due_state_label, format_interaction_kind, format_timestamp_date, format_timestamp_datetime,
     local_offset, now_utc, parse_contact_id, parse_local_timestamp,
 };
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use clap::Args;
 use knotter_core::dto::{ContactDetailDto, ContactListItemDto, InteractionDto};
 use knotter_core::filter::parse_filter;
@@ -123,7 +124,7 @@ pub fn edit_contact(ctx: &Context<'_>, args: EditContactArgs) -> Result<()> {
     }
 
     if update_is_empty(&update) {
-        return Err(anyhow!("no updates provided"));
+        return Err(invalid_input("no updates provided"));
     }
 
     let contact = ctx.store.contacts().update(now, id, update)?;
@@ -141,7 +142,7 @@ pub fn show_contact(ctx: &Context<'_>, args: ShowArgs) -> Result<()> {
         .store
         .contacts()
         .get(id)?
-        .ok_or_else(|| anyhow!("contact not found"))?;
+        .ok_or_else(|| not_found("contact not found"))?;
 
     let tags = ctx.store.tags().list_for_contact(&contact.id.to_string())?;
     let tag_names: Vec<String> = tags

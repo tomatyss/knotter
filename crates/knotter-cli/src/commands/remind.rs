@@ -1,4 +1,5 @@
 use crate::commands::{print_json, Context};
+use crate::error::invalid_input;
 use crate::notify::{Notifier, StdoutNotifier};
 use crate::util::{format_timestamp_date, local_offset, now_utc};
 use anyhow::Result;
@@ -6,6 +7,8 @@ use clap::Args;
 use knotter_config::NotificationBackend;
 use knotter_core::dto::{ContactListItemDto, ReminderOutputDto};
 use knotter_core::rules::{compute_due_state, validate_soon_days};
+#[cfg(feature = "desktop-notify")]
+use tracing::warn;
 
 #[cfg(feature = "desktop-notify")]
 use crate::notify::DesktopNotifier;
@@ -129,8 +132,8 @@ fn notify(output: &ReminderOutputDto, json_mode: bool, backend: NotificationBack
 
     if backend == NotificationBackend::Stdout {
         if json_mode {
-            return Err(anyhow::anyhow!(
-                "stdout notifications are unavailable in --json mode; drop --json or use desktop backend"
+            return Err(invalid_input(
+                "stdout notifications are unavailable in --json mode; drop --json or use desktop backend",
             ));
         }
         print_human(output);
@@ -146,7 +149,7 @@ fn notify(output: &ReminderOutputDto, json_mode: bool, backend: NotificationBack
                 if json_mode {
                     return Err(err).context("desktop notification failed");
                 }
-                eprintln!("desktop notification failed, falling back to stdout: {err}");
+                warn!(error = %err, "desktop notification failed, falling back to stdout");
             }
         }
     }
@@ -154,8 +157,8 @@ fn notify(output: &ReminderOutputDto, json_mode: bool, backend: NotificationBack
     #[cfg(not(feature = "desktop-notify"))]
     {
         if json_mode {
-            return Err(anyhow::anyhow!(
-                "desktop notifications unavailable (build with desktop-notify feature)"
+            return Err(invalid_input(
+                "desktop notifications unavailable (build with desktop-notify feature)",
             ));
         }
     }

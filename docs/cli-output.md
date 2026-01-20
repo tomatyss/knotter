@@ -7,6 +7,7 @@ This document defines the **stable output surface** for the CLI.
 - IDs are UUID strings (lowercase hex with dashes).
 - Timestamps are unix seconds (UTC) in JSON output.
 - Human output is intended for terminals and may evolve; JSON output is the stable interface.
+- Diagnostics are written to stderr; `--verbose` enables debug logs. Sensitive fields should not be logged.
 
 Related docs:
 - [Scheduling](scheduling.md) for reminder automation.
@@ -139,4 +140,6 @@ Output: JSON object:
 
 ## Exit codes (selected)
 
-- `3` for invalid filter syntax (e.g., `due:later`).
+- `1` for general failures (I/O, database, unexpected errors).
+- `2` for missing resources (e.g., contact not found, missing TUI binary).
+- `3` for invalid input (e.g., invalid filter syntax like `due:later`, invalid dates, invalid flags).

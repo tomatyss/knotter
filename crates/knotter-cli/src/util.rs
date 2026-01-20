@@ -1,4 +1,5 @@
-use anyhow::{anyhow, Result};
+use crate::error::invalid_input;
+use anyhow::Result;
 use knotter_core::domain::{ContactId, InteractionKind};
 use knotter_core::rules::DueState;
 pub use knotter_core::time::{
@@ -10,7 +11,7 @@ use std::str::FromStr;
 pub fn parse_interaction_kind(raw: &str) -> Result<InteractionKind> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return Err(anyhow!("interaction kind cannot be empty"));
+        return Err(invalid_input("interaction kind cannot be empty"));
     }
     let lower = trimmed.to_ascii_lowercase();
     match lower.as_str() {
@@ -23,8 +24,8 @@ pub fn parse_interaction_kind(raw: &str) -> Result<InteractionKind> {
                 let rest = &trimmed[6..];
                 return Ok(InteractionKind::other(rest)?);
             }
-            Err(anyhow!(
-                "invalid interaction kind: expected call|text|hangout|email|other:<label>"
+            Err(invalid_input(
+                "invalid interaction kind: expected call|text|hangout|email|other:<label>",
             ))
         }
     }
@@ -53,7 +54,7 @@ pub fn due_state_label(state: DueState) -> &'static str {
 pub fn parse_contact_id(raw: &str) -> Result<ContactId> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return Err(anyhow!("contact id cannot be empty"));
+        return Err(invalid_input("contact id cannot be empty"));
     }
-    ContactId::from_str(trimmed).map_err(|_| anyhow!("invalid contact id"))
+    ContactId::from_str(trimmed).map_err(|_| invalid_input("invalid contact id"))
 }

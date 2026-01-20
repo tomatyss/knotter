@@ -1,9 +1,10 @@
 use crate::commands::{print_json, Context};
+use crate::error::invalid_input;
 use crate::util::{
     format_interaction_kind, now_utc, parse_contact_id, parse_interaction_kind,
     parse_local_timestamp,
 };
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use clap::Args;
 use knotter_core::dto::InteractionDto;
 use knotter_store::repo::InteractionNew;
@@ -96,7 +97,7 @@ fn read_note_from_stdin() -> Result<String> {
     let mut buffer = String::new();
     io::stdin().read_to_string(&mut buffer)?;
     if buffer.trim().is_empty() {
-        return Err(anyhow!("note is empty (provide --note or stdin)"));
+        return Err(invalid_input("note is empty (provide --note or stdin)"));
     }
     Ok(buffer.trim_end().to_string())
 }

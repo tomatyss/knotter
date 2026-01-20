@@ -1,10 +1,12 @@
-use anyhow::{anyhow, Context as _, Result};
+use crate::error::not_found;
+use anyhow::{Context as _, Result};
 use clap::Args;
 use knotter_core::rules::validate_soon_days;
 use knotter_store::paths;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use tracing::debug;
 
 #[derive(Debug, Args)]
 pub struct TuiArgs {
@@ -20,7 +22,7 @@ pub fn launch(
 ) -> Result<()> {
     let db_path = paths::resolve_db_path(db_path).with_context(|| "resolve database path")?;
     if verbose {
-        eprintln!("db: {}", db_path.display());
+        debug!(path = %db_path.display(), "database path resolved");
     }
     let mut command = build_command(&db_path, config_path, args.soon_days)?;
 
@@ -71,9 +73,9 @@ fn find_tui_binary() -> PathBuf {
 
 fn exec_error(err: std::io::Error) -> anyhow::Error {
     if err.kind() == std::io::ErrorKind::NotFound {
-        return anyhow!(
-            "knotter-tui binary not found; build it with `cargo build -p knotter-tui` or install the package"
+        return not_found(
+            "knotter-tui binary not found; build it with `cargo build -p knotter-tui` or install the package",
         );
     }
-    anyhow!("launch knotter-tui failed: {}", err)
+    anyhow::anyhow!("launch knotter-tui failed: {}", err)
 }

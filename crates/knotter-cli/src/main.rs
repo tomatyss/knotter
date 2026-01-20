@@ -1,4 +1,5 @@
 mod commands;
+mod error;
 mod notify;
 mod util;
 
@@ -6,11 +7,11 @@ use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::process::ExitCode;
+use tracing::debug;
 
 use crate::commands::{backup, contacts, interactions, remind, schedule, sync, tags, tui, Context};
+use crate::error::{exit_code_for, report_error};
 use knotter_config as config;
-use knotter_core::{filter::FilterParseError, CoreError};
-use knotter_store::error::{StoreError, StoreErrorKind};
 use knotter_store::{paths, Store};
 
 #[derive(Debug, Parser)]
@@ -55,23 +56,26 @@ enum Command {
 }
 
 fn main() -> ExitCode {
-    match run() {
+    let cli = Cli::parse();
+    let verbose = cli.verbose;
+    init_logging(verbose);
+    match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("{:#}", err);
+            report_error(&err, verbose);
             exit_code_for(&err)
         }
     }
 }
 
-fn run() -> Result<()> {
+fn run(cli: Cli) -> Result<()> {
     let Cli {
         db_path,
         config: config_path,
         json,
         verbose,
         command,
-    } = Cli::parse();
+    } = cli;
 
     match command {
         Command::Tui(args) => tui::launch(db_path, config_path, args, verbose),
@@ -81,13 +85,13 @@ fn run() -> Result<()> {
                 match config::resolve_config_path(config_path.clone()) {
                     Ok(path) => {
                         if path.exists() {
-                            eprintln!("config: {}", path.display());
+                            debug!(path = %path.display(), "config resolved");
                         } else {
-                            eprintln!("config: {} (missing, using defaults)", path.display());
+                            debug!(path = %path.display(), "config missing, using defaults");
                         }
                     }
                     Err(err) => {
-                        eprintln!("config: unavailable ({err})");
+                        debug!(error = %err, "config unavailable");
                     }
                 }
             }
@@ -95,11 +99,12 @@ fn run() -> Result<()> {
                 paths::resolve_db_path(db_path).with_context(|| "resolve database path")?;
 
             if verbose {
-                eprintln!("db: {}", db_path.display());
+                debug!(path = %db_path.display(), "database path resolved");
             }
 
-            let store = Store::open(&db_path)?;
-            store.migrate()?;
+            let store = Store::open(&db_path)
+                .with_context(|| format!("open database {}", db_path.display()))?;
+            store.migrate().with_context(|| "run migrations")?;
 
             let ctx = Context {
                 store: &store,
@@ -138,28 +143,14 @@ fn run() -> Result<()> {
     }
 }
 
-fn exit_code_for(err: &anyhow::Error) -> ExitCode {
-    for cause in err.chain() {
-        if let Some(store_err) = cause.downcast_ref::<StoreError>() {
-            return ExitCode::from(store_exit_code(store_err));
-        }
-        if let Some(_core_err) = cause.downcast_ref::<CoreError>() {
-            return ExitCode::from(4);
-        }
-        if let Some(_parse_err) = cause.downcast_ref::<FilterParseError>() {
-            return ExitCode::from(3);
-        }
-    }
-    ExitCode::from(1)
-}
-
-fn store_exit_code(err: &StoreError) -> u8 {
-    match err.kind() {
-        StoreErrorKind::NotFound => 2,
-        StoreErrorKind::InvalidId
-        | StoreErrorKind::InvalidFilter
-        | StoreErrorKind::InvalidBackupPath => 3,
-        StoreErrorKind::Core => 4,
-        _ => 1,
-    }
+fn init_logging(verbose: bool) {
+    use tracing_subscriber::{fmt, EnvFilter};
+    let default_level = if verbose { "debug" } else { "warn" };
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_level));
+    let _ = fmt()
+        .with_env_filter(filter)
+        .with_target(false)
+        .without_time()
+        .try_init();
 }

@@ -580,11 +580,11 @@ Daily reminders can be scheduled externally; notifications are optional and safe
 - [ ] Document how to install completions
 
 ### H4. Robustness and ergonomics
-- [ ] Ensure all CLI commands have consistent error messages
-- [ ] Ensure exit codes are correct (0 success, non-zero failure)
-- [ ] Add logging policy:
-  - [ ] quiet by default
-  - [ ] verbose flag prints debug info (never secrets)
+- [x] Ensure all CLI commands have consistent error messages
+- [x] Ensure exit codes are correct (0 success, non-zero failure)
+- [x] Add logging policy:
+  - [x] quiet by default
+  - [x] verbose flag prints debug info (never secrets)
 - [x] TUI never corrupts terminal state even on panic
 
 **DoD (Milestone H)**  
