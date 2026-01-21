@@ -8,6 +8,7 @@ pub mod backup;
 pub mod completions;
 pub mod contacts;
 pub mod interactions;
+pub mod loops;
 pub mod remind;
 pub mod schedule;
 pub mod sync;

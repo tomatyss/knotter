@@ -1,7 +1,7 @@
 use crate::error::{Result, StoreError};
 use crate::query::{due_bounds, ContactQuery};
 use chrono::FixedOffset;
-use knotter_core::domain::{Contact, ContactId};
+use knotter_core::domain::{Contact, ContactId, TagName};
 use knotter_core::rules::validate_soon_days;
 use rusqlite::{params, params_from_iter, Connection};
 use std::str::FromStr;
@@ -40,40 +40,21 @@ impl<'a> ContactsRepo<'a> {
     }
 
     pub fn create(&self, now_utc: i64, input: ContactNew) -> Result<Contact> {
-        let contact = Contact {
-            id: ContactId::new(),
-            display_name: input.display_name,
-            email: input.email,
-            phone: input.phone,
-            handle: input.handle,
-            timezone: input.timezone,
-            next_touchpoint_at: input.next_touchpoint_at,
-            cadence_days: input.cadence_days,
-            created_at: now_utc,
-            updated_at: now_utc,
-            archived_at: input.archived_at,
-        };
+        create_inner(self.conn, now_utc, input)
+    }
 
-        contact.validate()?;
-
-        self.conn.execute(
-            "INSERT INTO contacts (id, display_name, email, phone, handle, timezone, next_touchpoint_at, cadence_days, created_at, updated_at, archived_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11);",
-            params![
-                contact.id.to_string(),
-                contact.display_name,
-                contact.email,
-                contact.phone,
-                contact.handle,
-                contact.timezone,
-                contact.next_touchpoint_at,
-                contact.cadence_days,
-                contact.created_at,
-                contact.updated_at,
-                contact.archived_at,
-            ],
-        )?;
-
+    pub fn create_with_tags(
+        &self,
+        now_utc: i64,
+        input: ContactNew,
+        tags: Vec<TagName>,
+    ) -> Result<Contact> {
+        let tx = self.conn.unchecked_transaction()?;
+        let contact = create_inner(&tx, now_utc, input)?;
+        if !tags.is_empty() {
+            crate::repo::tags::set_contact_tags_inner(&tx, &contact.id.to_string(), tags)?;
+        }
+        tx.commit()?;
         Ok(contact)
     }
 
@@ -222,6 +203,44 @@ impl<'a> ContactsRepo<'a> {
         }
         Ok(contacts)
     }
+}
+
+fn create_inner(conn: &Connection, now_utc: i64, input: ContactNew) -> Result<Contact> {
+    let contact = Contact {
+        id: ContactId::new(),
+        display_name: input.display_name,
+        email: input.email,
+        phone: input.phone,
+        handle: input.handle,
+        timezone: input.timezone,
+        next_touchpoint_at: input.next_touchpoint_at,
+        cadence_days: input.cadence_days,
+        created_at: now_utc,
+        updated_at: now_utc,
+        archived_at: input.archived_at,
+    };
+
+    contact.validate()?;
+
+    conn.execute(
+        "INSERT INTO contacts (id, display_name, email, phone, handle, timezone, next_touchpoint_at, cadence_days, created_at, updated_at, archived_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11);",
+        params![
+            contact.id.to_string(),
+            contact.display_name,
+            contact.email,
+            contact.phone,
+            contact.handle,
+            contact.timezone,
+            contact.next_touchpoint_at,
+            contact.cadence_days,
+            contact.created_at,
+            contact.updated_at,
+            contact.archived_at,
+        ],
+    )?;
+
+    Ok(contact)
 }
 
 fn contact_from_row(row: &rusqlite::Row<'_>) -> Result<Contact> {

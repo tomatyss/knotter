@@ -3,8 +3,9 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use knotter_core::domain::TagName;
 use knotter_core::rules::cadence::MAX_CADENCE_DAYS;
-use knotter_core::rules::validate_soon_days;
+use knotter_core::rules::{validate_soon_days, LoopPolicy, LoopRule, LoopStrategy};
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -18,6 +19,7 @@ pub struct AppConfig {
     pub due_soon_days: i64,
     pub default_cadence_days: Option<i32>,
     pub notifications: NotificationsConfig,
+    pub loops: LoopConfig,
     pub contacts: ContactsConfig,
 }
 
@@ -25,6 +27,35 @@ pub struct AppConfig {
 pub struct NotificationsConfig {
     pub enabled: bool,
     pub backend: NotificationBackend,
+}
+
+#[derive(Debug, Clone)]
+pub struct LoopConfig {
+    pub policy: LoopPolicy,
+    pub apply_on_tag_change: bool,
+    pub schedule_missing: bool,
+    pub anchor: LoopAnchor,
+    pub override_existing: bool,
+}
+
+impl Default for LoopConfig {
+    fn default() -> Self {
+        Self {
+            policy: LoopPolicy::default(),
+            apply_on_tag_change: false,
+            schedule_missing: false,
+            anchor: LoopAnchor::Now,
+            override_existing: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LoopAnchor {
+    Now,
+    CreatedAt,
+    LastInteraction,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -81,6 +112,7 @@ impl Default for AppConfig {
                 enabled: false,
                 backend: NotificationBackend::Desktop,
             },
+            loops: LoopConfig::default(),
             contacts: ContactsConfig::default(),
         }
     }
@@ -100,6 +132,14 @@ pub enum ConfigError {
     InvalidSoonDays(i64),
     #[error("invalid default_cadence_days value: {0}")]
     InvalidCadenceDays(i32),
+    #[error("invalid loops.default_cadence_days value: {0}")]
+    InvalidLoopDefaultCadence(i32),
+    #[error("invalid loops rule cadence_days value: {0}")]
+    InvalidLoopCadenceDays(i32),
+    #[error("invalid loops rule tag: {0}")]
+    InvalidLoopTag(String),
+    #[error("duplicate loops rule tag: {0}")]
+    DuplicateLoopTag(String),
     #[error("invalid contact source name: {0}")]
     InvalidContactSourceName(String),
     #[error("duplicate contact source name: {0}")]
@@ -128,6 +168,7 @@ struct ConfigFile {
     due_soon_days: Option<i64>,
     default_cadence_days: Option<i32>,
     notifications: Option<NotificationsFile>,
+    loops: Option<LoopConfigFile>,
     contacts: Option<ContactsFile>,
 }
 
@@ -136,6 +177,26 @@ struct ConfigFile {
 struct NotificationsFile {
     enabled: Option<bool>,
     backend: Option<NotificationBackend>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LoopConfigFile {
+    default_cadence_days: Option<i32>,
+    strategy: Option<LoopStrategy>,
+    apply_on_tag_change: Option<bool>,
+    schedule_missing: Option<bool>,
+    anchor: Option<LoopAnchor>,
+    override_existing: Option<bool>,
+    tags: Option<Vec<LoopRuleFile>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LoopRuleFile {
+    tag: String,
+    cadence_days: i32,
+    priority: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -241,6 +302,52 @@ fn merge_config(parsed: ConfigFile) -> Result<AppConfig> {
         }
         if let Some(backend) = notifications.backend {
             config.notifications.backend = backend;
+        }
+    }
+
+    if let Some(loops) = parsed.loops {
+        if let Some(default_cadence) = loops.default_cadence_days {
+            if default_cadence <= 0 || default_cadence > MAX_CADENCE_DAYS {
+                return Err(ConfigError::InvalidLoopDefaultCadence(default_cadence));
+            }
+            config.loops.policy.default_cadence_days = Some(default_cadence);
+        }
+
+        if let Some(strategy) = loops.strategy {
+            config.loops.policy.strategy = strategy;
+        }
+
+        if let Some(enabled) = loops.apply_on_tag_change {
+            config.loops.apply_on_tag_change = enabled;
+        }
+
+        if let Some(schedule_missing) = loops.schedule_missing {
+            config.loops.schedule_missing = schedule_missing;
+        }
+
+        if let Some(anchor) = loops.anchor {
+            config.loops.anchor = anchor;
+        }
+
+        if let Some(override_existing) = loops.override_existing {
+            config.loops.override_existing = override_existing;
+        }
+
+        if let Some(rules) = loops.tags {
+            let mut seen: HashSet<String> = HashSet::new();
+            for rule in rules {
+                let tag = TagName::new(&rule.tag)
+                    .map_err(|_| ConfigError::InvalidLoopTag(rule.tag.clone()))?;
+                let normalized = tag.as_str().to_string();
+                if !seen.insert(normalized.clone()) {
+                    return Err(ConfigError::DuplicateLoopTag(normalized));
+                }
+
+                let priority = rule.priority.unwrap_or(0);
+                let loop_rule = LoopRule::new(tag, rule.cadence_days, priority)
+                    .map_err(|_| ConfigError::InvalidLoopCadenceDays(rule.cadence_days))?;
+                config.loops.policy.rules.push(loop_rule);
+            }
         }
     }
 
@@ -378,7 +485,8 @@ fn ensure_permissions(_path: &Path) -> Result<()> {
 mod tests {
     use super::{
         load_at_path, merge_config, CardDavSourceConfig, ConfigFile, ContactSourceFile,
-        ContactSourceKind, ContactsFile, MacosSourceConfig, NotificationBackend, NotificationsFile,
+        ContactSourceKind, ContactsFile, LoopAnchor, LoopConfigFile, LoopRuleFile, LoopStrategy,
+        MacosSourceConfig, NotificationBackend, NotificationsFile,
     };
     use std::fs;
     use std::path::Path;
@@ -403,6 +511,7 @@ mod tests {
                 enabled: Some(true),
                 backend: Some(NotificationBackend::Desktop),
             }),
+            loops: None,
             contacts: None,
         };
         let merged = merge_config(parsed).expect("merge");
@@ -418,6 +527,7 @@ mod tests {
             due_soon_days: None,
             default_cadence_days: None,
             notifications: None,
+            loops: None,
             contacts: Some(ContactsFile {
                 sources: Some(vec![
                     ContactSourceFile::Carddav {
@@ -462,6 +572,7 @@ mod tests {
             due_soon_days: None,
             default_cadence_days: None,
             notifications: None,
+            loops: None,
             contacts: Some(ContactsFile {
                 sources: Some(vec![
                     ContactSourceFile::Macos {
@@ -488,6 +599,7 @@ mod tests {
             due_soon_days: None,
             default_cadence_days: None,
             notifications: None,
+            loops: None,
             contacts: Some(ContactsFile {
                 sources: Some(vec![ContactSourceFile::Carddav {
                     name: "Gmail".to_string(),
@@ -509,6 +621,7 @@ mod tests {
             due_soon_days: None,
             default_cadence_days: None,
             notifications: None,
+            loops: None,
             contacts: Some(ContactsFile {
                 sources: Some(vec![ContactSourceFile::Carddav {
                     name: "Gmail".to_string(),
@@ -534,11 +647,113 @@ mod tests {
     }
 
     #[test]
+    fn merge_config_parses_loops() {
+        let parsed = ConfigFile {
+            due_soon_days: None,
+            default_cadence_days: None,
+            notifications: None,
+            loops: Some(LoopConfigFile {
+                default_cadence_days: Some(180),
+                strategy: Some(LoopStrategy::Priority),
+                apply_on_tag_change: Some(true),
+                schedule_missing: Some(true),
+                anchor: Some(LoopAnchor::LastInteraction),
+                override_existing: Some(true),
+                tags: Some(vec![
+                    LoopRuleFile {
+                        tag: "friend".to_string(),
+                        cadence_days: 90,
+                        priority: Some(10),
+                    },
+                    LoopRuleFile {
+                        tag: "family".to_string(),
+                        cadence_days: 30,
+                        priority: None,
+                    },
+                ]),
+            }),
+            contacts: None,
+        };
+
+        let merged = merge_config(parsed).expect("merge");
+        assert_eq!(merged.loops.policy.default_cadence_days, Some(180));
+        assert_eq!(merged.loops.policy.strategy, LoopStrategy::Priority);
+        assert!(merged.loops.apply_on_tag_change);
+        assert!(merged.loops.schedule_missing);
+        assert_eq!(merged.loops.anchor, LoopAnchor::LastInteraction);
+        assert!(merged.loops.override_existing);
+        assert_eq!(merged.loops.policy.rules.len(), 2);
+        assert_eq!(merged.loops.policy.rules[0].tag.as_str(), "friend");
+        assert_eq!(merged.loops.policy.rules[0].cadence_days, 90);
+        assert_eq!(merged.loops.policy.rules[0].priority, 10);
+    }
+
+    #[test]
+    fn merge_config_rejects_duplicate_loop_tags() {
+        let parsed = ConfigFile {
+            due_soon_days: None,
+            default_cadence_days: None,
+            notifications: None,
+            loops: Some(LoopConfigFile {
+                default_cadence_days: None,
+                strategy: None,
+                apply_on_tag_change: None,
+                schedule_missing: None,
+                anchor: None,
+                override_existing: None,
+                tags: Some(vec![
+                    LoopRuleFile {
+                        tag: "Friend".to_string(),
+                        cadence_days: 90,
+                        priority: None,
+                    },
+                    LoopRuleFile {
+                        tag: "friend".to_string(),
+                        cadence_days: 30,
+                        priority: None,
+                    },
+                ]),
+            }),
+            contacts: None,
+        };
+
+        let err = merge_config(parsed).unwrap_err();
+        assert!(err.to_string().contains("duplicate loops rule tag"));
+    }
+
+    #[test]
+    fn merge_config_rejects_invalid_loop_tag() {
+        let parsed = ConfigFile {
+            due_soon_days: None,
+            default_cadence_days: None,
+            notifications: None,
+            loops: Some(LoopConfigFile {
+                default_cadence_days: None,
+                strategy: None,
+                apply_on_tag_change: None,
+                schedule_missing: None,
+                anchor: None,
+                override_existing: None,
+                tags: Some(vec![LoopRuleFile {
+                    tag: "   ".to_string(),
+                    cadence_days: 30,
+                    priority: None,
+                }]),
+            }),
+            contacts: None,
+        };
+
+        let err = merge_config(parsed).unwrap_err();
+        assert!(err.to_string().contains("invalid loops rule tag"));
+    }
+
+    #[test]
     fn merge_config_rejects_missing_carddav_username() {
         let parsed = ConfigFile {
             due_soon_days: None,
             default_cadence_days: None,
             notifications: None,
+            loops: None,
             contacts: Some(ContactsFile {
                 sources: Some(vec![ContactSourceFile::Carddav {
                     name: "Gmail".to_string(),
@@ -560,6 +775,7 @@ mod tests {
             due_soon_days: None,
             default_cadence_days: None,
             notifications: None,
+            loops: None,
             contacts: Some(ContactsFile {
                 sources: Some(vec![ContactSourceFile::Macos {
                     name: "Local".to_string(),

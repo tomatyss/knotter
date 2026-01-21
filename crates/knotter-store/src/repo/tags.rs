@@ -115,22 +115,31 @@ impl<'a> TagsRepo<'a> {
 
     pub fn set_contact_tags(&self, contact_id: &str, tags: Vec<TagName>) -> Result<()> {
         let tx = self.conn.unchecked_transaction()?;
-        tx.execute(
-            "DELETE FROM contact_tags WHERE contact_id = ?1;",
-            [contact_id],
-        )?;
-
-        for tag in tags {
-            let tag = upsert_inner(&tx, tag)?;
-            tx.execute(
-                "INSERT OR IGNORE INTO contact_tags (contact_id, tag_id) VALUES (?1, ?2);",
-                params![contact_id, tag.id.to_string()],
-            )?;
-        }
-
+        set_contact_tags_inner(&tx, contact_id, tags)?;
         tx.commit()?;
         Ok(())
     }
+}
+
+pub(crate) fn set_contact_tags_inner(
+    conn: &Connection,
+    contact_id: &str,
+    tags: Vec<TagName>,
+) -> Result<()> {
+    conn.execute(
+        "DELETE FROM contact_tags WHERE contact_id = ?1;",
+        [contact_id],
+    )?;
+
+    for tag in tags {
+        let tag = upsert_inner(conn, tag)?;
+        conn.execute(
+            "INSERT OR IGNORE INTO contact_tags (contact_id, tag_id) VALUES (?1, ?2);",
+            params![contact_id, tag.id.to_string()],
+        )?;
+    }
+
+    Ok(())
 }
 
 fn upsert_inner(conn: &Connection, name: TagName) -> Result<Tag> {

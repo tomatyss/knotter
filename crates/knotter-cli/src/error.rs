@@ -90,6 +90,10 @@ fn config_exit_code(err: &ConfigError) -> u8 {
         | ConfigError::InsecurePermissions(_)
         | ConfigError::InvalidSoonDays(_)
         | ConfigError::InvalidCadenceDays(_)
+        | ConfigError::InvalidLoopDefaultCadence(_)
+        | ConfigError::InvalidLoopCadenceDays(_)
+        | ConfigError::InvalidLoopTag(_)
+        | ConfigError::DuplicateLoopTag(_)
         | ConfigError::InvalidContactSourceName(_)
         | ConfigError::DuplicateContactSourceName(_)
         | ConfigError::InvalidContactSourceField { .. }

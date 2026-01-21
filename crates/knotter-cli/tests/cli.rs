@@ -1,7 +1,7 @@
 use assert_cmd::cargo::cargo_bin_cmd;
 use chrono::{Duration, Local};
 use knotter_core::domain::ContactId;
-use knotter_core::rules::MAX_SOON_DAYS;
+use knotter_core::rules::{schedule_next, MAX_SOON_DAYS};
 use knotter_store::repo::ContactUpdate;
 use knotter_store::Store;
 use serde_json::Value;
@@ -647,4 +647,493 @@ fn cli_import_vcf_skips_duplicate_email() {
         .collect();
     assert!(names.contains(&"First".to_string()));
     assert!(names.contains(&"Second".to_string()));
+}
+
+#[test]
+fn cli_loops_apply_updates_cadence_and_schedules() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let config_path = temp.path().join("config.toml");
+
+    std::fs::write(
+        &config_path,
+        r#"
+[loops]
+strategy = "shortest"
+schedule_missing = true
+anchor = "created-at"
+
+[[loops.tags]]
+tag = "friend"
+cadence_days = 90
+
+[[loops.tags]]
+tag = "family"
+cadence_days = 30
+"#,
+    )
+    .expect("write config");
+    restrict_config_permissions(&config_path);
+
+    run_cmd_with_config(
+        &db_path,
+        &config_path,
+        &["add-contact", "--name", "Ada Lovelace"],
+    );
+    run_cmd_with_config(
+        &db_path,
+        &config_path,
+        &["add-contact", "--name", "Grace Hopper"],
+    );
+
+    let list = run_cmd_json_with_config(&db_path, &config_path, &["list"]);
+    let items = list.as_array().expect("array");
+    let mut ada_id = None;
+    let mut grace_id = None;
+    for item in items {
+        match item["display_name"].as_str().expect("name") {
+            "Ada Lovelace" => ada_id = item["id"].as_str().map(|id| id.to_string()),
+            "Grace Hopper" => grace_id = item["id"].as_str().map(|id| id.to_string()),
+            _ => {}
+        }
+    }
+    let ada_id = ada_id.expect("ada id");
+    let grace_id = grace_id.expect("grace id");
+
+    run_cmd_with_config(&db_path, &config_path, &["tag", "add", &grace_id, "friend"]);
+
+    run_cmd_with_config(&db_path, &config_path, &["loops", "apply"]);
+
+    let ada = run_cmd_json_with_config(&db_path, &config_path, &["show", &ada_id]);
+    assert!(ada["cadence_days"].is_null());
+    assert!(ada["next_touchpoint_at"].is_null());
+
+    let grace = run_cmd_json_with_config(&db_path, &config_path, &["show", &grace_id]);
+    assert_eq!(grace["cadence_days"], 90);
+    assert!(grace["next_touchpoint_at"].is_number());
+}
+
+#[test]
+fn cli_tag_add_apply_on_tag_change_updates_cadence() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let config_path = temp.path().join("config.toml");
+
+    std::fs::write(
+        &config_path,
+        r#"
+[loops]
+apply_on_tag_change = true
+schedule_missing = false
+
+[[loops.tags]]
+tag = "friend"
+cadence_days = 90
+"#,
+    )
+    .expect("write config");
+    restrict_config_permissions(&config_path);
+
+    run_cmd_with_config(
+        &db_path,
+        &config_path,
+        &["add-contact", "--name", "Ada Lovelace"],
+    );
+    let list = run_cmd_json_with_config(&db_path, &config_path, &["list"]);
+    let items = list.as_array().expect("array");
+    let id = items[0]["id"].as_str().expect("id").to_string();
+
+    run_cmd_with_config(&db_path, &config_path, &["tag", "add", &id, "friend"]);
+
+    let detail = run_cmd_json_with_config(&db_path, &config_path, &["show", &id]);
+    assert_eq!(detail["cadence_days"], 90);
+    assert!(detail["next_touchpoint_at"].is_null());
+}
+
+#[test]
+fn cli_add_contact_with_tag_applies_loop_policy() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let config_path = temp.path().join("config.toml");
+
+    std::fs::write(
+        &config_path,
+        r#"
+[loops]
+default_cadence_days = 180
+strategy = "shortest"
+schedule_missing = true
+anchor = "created-at"
+
+[[loops.tags]]
+tag = "friend"
+cadence_days = 90
+"#,
+    )
+    .expect("write config");
+    restrict_config_permissions(&config_path);
+
+    let created = run_cmd_json_with_config(
+        &db_path,
+        &config_path,
+        &["add-contact", "--name", "Ada Lovelace", "--tag", "friend"],
+    );
+    let id = created["id"].as_str().expect("id").to_string();
+    assert_eq!(created["cadence_days"], 90);
+
+    let detail = run_cmd_json_with_config(&db_path, &config_path, &["show", &id]);
+    let tags = detail["tags"].as_array().expect("tags");
+    assert!(tags.iter().any(|tag| tag == "friend"));
+    assert_eq!(detail["cadence_days"], 90);
+    assert!(detail["next_touchpoint_at"].is_number());
+}
+
+#[test]
+fn cli_loops_apply_no_schedule_missing_skips_scheduling() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let config_path = temp.path().join("config.toml");
+
+    std::fs::write(
+        &config_path,
+        r#"
+[loops]
+schedule_missing = true
+
+[[loops.tags]]
+tag = "friend"
+cadence_days = 10
+"#,
+    )
+    .expect("write config");
+    restrict_config_permissions(&config_path);
+
+    let created = run_cmd_json_with_config(
+        &db_path,
+        &config_path,
+        &["add-contact", "--name", "Ada Lovelace"],
+    );
+    let id = created["id"].as_str().expect("id").to_string();
+    run_cmd_with_config(&db_path, &config_path, &["tag", "add", &id, "friend"]);
+
+    run_cmd_with_config(
+        &db_path,
+        &config_path,
+        &["loops", "apply", "--no-schedule-missing"],
+    );
+
+    let detail = run_cmd_json_with_config(&db_path, &config_path, &["show", &id]);
+    assert_eq!(detail["cadence_days"], 10);
+    assert!(detail["next_touchpoint_at"].is_null());
+}
+
+#[test]
+fn cli_loops_apply_anchor_last_interaction_uses_interaction_timestamp() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let config_path = temp.path().join("config.toml");
+
+    std::fs::write(
+        &config_path,
+        r#"
+[loops]
+schedule_missing = false
+anchor = "last-interaction"
+
+[[loops.tags]]
+tag = "friend"
+cadence_days = 7
+"#,
+    )
+    .expect("write config");
+    restrict_config_permissions(&config_path);
+
+    let created = run_cmd_json_with_config(
+        &db_path,
+        &config_path,
+        &["add-contact", "--name", "Ada Lovelace", "--tag", "friend"],
+    );
+    let id = created["id"].as_str().expect("id").to_string();
+    let contact_id = ContactId::from_str(&id).expect("contact id");
+
+    let store = Store::open(&db_path).expect("open store");
+    let occurred_at = 1_700_000_000;
+    store
+        .interactions()
+        .add(knotter_store::repo::InteractionNew {
+            contact_id,
+            occurred_at,
+            created_at: occurred_at,
+            kind: knotter_core::domain::InteractionKind::Call,
+            note: "hello".to_string(),
+            follow_up_at: None,
+        })
+        .expect("add interaction");
+
+    run_cmd_with_config(
+        &db_path,
+        &config_path,
+        &["loops", "apply", "--schedule-missing"],
+    );
+
+    let detail = run_cmd_json_with_config(&db_path, &config_path, &["show", &id]);
+    let expected = schedule_next(occurred_at, 7).expect("schedule");
+    assert_eq!(detail["next_touchpoint_at"], expected);
+}
+
+#[test]
+fn cli_loops_apply_anchor_last_interaction_skips_without_interactions() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let config_path = temp.path().join("config.toml");
+
+    std::fs::write(
+        &config_path,
+        r#"
+[loops]
+schedule_missing = true
+anchor = "last-interaction"
+
+[[loops.tags]]
+tag = "friend"
+cadence_days = 7
+"#,
+    )
+    .expect("write config");
+    restrict_config_permissions(&config_path);
+
+    let created = run_cmd_json_with_config(
+        &db_path,
+        &config_path,
+        &["add-contact", "--name", "Ada Lovelace", "--tag", "friend"],
+    );
+    let id = created["id"].as_str().expect("id").to_string();
+
+    run_cmd_with_config(&db_path, &config_path, &["loops", "apply"]);
+
+    let detail = run_cmd_json_with_config(&db_path, &config_path, &["show", &id]);
+    assert!(detail["next_touchpoint_at"].is_null());
+}
+
+#[test]
+fn cli_loops_apply_force_overrides_existing_cadence() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let config_path = temp.path().join("config.toml");
+
+    std::fs::write(
+        &config_path,
+        r#"
+[loops]
+schedule_missing = false
+
+[[loops.tags]]
+tag = "friend"
+cadence_days = 90
+"#,
+    )
+    .expect("write config");
+    restrict_config_permissions(&config_path);
+
+    let created = run_cmd_json_with_config(
+        &db_path,
+        &config_path,
+        &[
+            "add-contact",
+            "--name",
+            "Ada Lovelace",
+            "--cadence-days",
+            "180",
+        ],
+    );
+    let id = created["id"].as_str().expect("id").to_string();
+    run_cmd_with_config(&db_path, &config_path, &["tag", "add", &id, "friend"]);
+
+    run_cmd_with_config(&db_path, &config_path, &["loops", "apply"]);
+    let detail = run_cmd_json_with_config(&db_path, &config_path, &["show", &id]);
+    assert_eq!(detail["cadence_days"], 180);
+
+    run_cmd_with_config(&db_path, &config_path, &["loops", "apply", "--force"]);
+    let detail = run_cmd_json_with_config(&db_path, &config_path, &["show", &id]);
+    assert_eq!(detail["cadence_days"], 90);
+}
+
+#[test]
+fn cli_tag_remove_apply_loop_keeps_command_successful() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let config_path = temp.path().join("config.toml");
+
+    std::fs::write(
+        &config_path,
+        r#"
+[loops]
+schedule_missing = false
+
+[[loops.tags]]
+tag = "friend"
+cadence_days = 90
+"#,
+    )
+    .expect("write config");
+    restrict_config_permissions(&config_path);
+
+    let created = run_cmd_json_with_config(
+        &db_path,
+        &config_path,
+        &["add-contact", "--name", "Ada Lovelace"],
+    );
+    let id = created["id"].as_str().expect("id").to_string();
+    run_cmd_with_config(&db_path, &config_path, &["tag", "add", &id, "friend"]);
+
+    run_cmd_with_config(
+        &db_path,
+        &config_path,
+        &["tag", "rm", &id, "friend", "--apply-loop"],
+    );
+
+    let detail = run_cmd_json_with_config(&db_path, &config_path, &["show", &id]);
+    let tags = detail["tags"].as_array().expect("tags");
+    assert!(tags.is_empty());
+}
+
+#[test]
+fn cli_add_contact_anchor_last_interaction_does_not_schedule() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let config_path = temp.path().join("config.toml");
+
+    std::fs::write(
+        &config_path,
+        r#"
+[loops]
+schedule_missing = true
+anchor = "last-interaction"
+
+[[loops.tags]]
+tag = "friend"
+cadence_days = 30
+"#,
+    )
+    .expect("write config");
+    restrict_config_permissions(&config_path);
+
+    let created = run_cmd_json_with_config(
+        &db_path,
+        &config_path,
+        &["add-contact", "--name", "Ada Lovelace", "--tag", "friend"],
+    );
+    let id = created["id"].as_str().expect("id").to_string();
+    assert_eq!(created["cadence_days"], 30);
+
+    let detail = run_cmd_json_with_config(&db_path, &config_path, &["show", &id]);
+    assert_eq!(detail["cadence_days"], 30);
+    assert!(detail["next_touchpoint_at"].is_null());
+}
+
+#[test]
+fn cli_tag_add_apply_loop_requires_loops_configured() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+
+    run_cmd(&db_path, &["add-contact", "--name", "Ada Lovelace"]);
+    let list = run_cmd_json(&db_path, &["list"]);
+    let items = list.as_array().expect("array");
+    let id = items[0]["id"].as_str().expect("id").to_string();
+
+    let output = run_cmd_output(&db_path, &["tag", "add", &id, "friend", "--apply-loop"]);
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("no loops configured"));
+}
+
+#[test]
+fn cli_loops_apply_dry_run_does_not_modify_data() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let config_path = temp.path().join("config.toml");
+
+    std::fs::write(
+        &config_path,
+        r#"
+[loops]
+schedule_missing = false
+anchor = "created-at"
+
+[[loops.tags]]
+tag = "friend"
+cadence_days = 30
+"#,
+    )
+    .expect("write config");
+    restrict_config_permissions(&config_path);
+
+    let created = run_cmd_json_with_config(
+        &db_path,
+        &config_path,
+        &["add-contact", "--name", "Ada Lovelace", "--tag", "friend"],
+    );
+    let id = created["id"].as_str().expect("id").to_string();
+
+    run_cmd_with_config(&db_path, &config_path, &["loops", "apply", "--dry-run"]);
+
+    let detail = run_cmd_json_with_config(&db_path, &config_path, &["show", &id]);
+    assert!(detail["next_touchpoint_at"].is_null());
+    assert_eq!(detail["cadence_days"], 30);
+}
+
+#[test]
+fn cli_loops_apply_filter_scopes_updates() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let config_path = temp.path().join("config.toml");
+
+    std::fs::write(
+        &config_path,
+        r#"
+[loops]
+schedule_missing = false
+anchor = "created-at"
+
+[[loops.tags]]
+tag = "friend"
+cadence_days = 30
+"#,
+    )
+    .expect("write config");
+    restrict_config_permissions(&config_path);
+
+    let ada = run_cmd_json_with_config(
+        &db_path,
+        &config_path,
+        &["add-contact", "--name", "Ada Lovelace", "--tag", "friend"],
+    );
+    let ada_id = ada["id"].as_str().expect("id").to_string();
+
+    let grace = run_cmd_json_with_config(
+        &db_path,
+        &config_path,
+        &[
+            "add-contact",
+            "--name",
+            "Grace Hopper",
+            "--tag",
+            "friend",
+            "--cadence-days",
+            "7",
+        ],
+    );
+    let grace_id = grace["id"].as_str().expect("id").to_string();
+
+    run_cmd_with_config(
+        &db_path,
+        &config_path,
+        &["loops", "apply", "--filter", "Ada"],
+    );
+
+    let ada_detail = run_cmd_json_with_config(&db_path, &config_path, &["show", &ada_id]);
+    let grace_detail = run_cmd_json_with_config(&db_path, &config_path, &["show", &grace_id]);
+
+    assert!(ada_detail["cadence_days"].is_number());
+    assert_eq!(grace_detail["cadence_days"], 7);
 }

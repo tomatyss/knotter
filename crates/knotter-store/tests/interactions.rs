@@ -108,3 +108,86 @@ fn touch_contact_inserts_interaction_and_reschedules_when_requested() {
     let expected_next = schedule_next(now, 7).expect("schedule");
     assert_eq!(after_reschedule.next_touchpoint_at, Some(expected_next));
 }
+
+#[test]
+fn interactions_latest_occurred_at_for_contacts() {
+    let store = Store::open_in_memory().expect("open in memory");
+    store.migrate().expect("migrate");
+
+    let now = 1_700_000_000;
+    let first = store
+        .contacts()
+        .create(
+            now,
+            ContactNew {
+                display_name: "First".to_string(),
+                email: None,
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create contact");
+
+    let second = store
+        .contacts()
+        .create(
+            now,
+            ContactNew {
+                display_name: "Second".to_string(),
+                email: None,
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create contact");
+
+    store
+        .interactions()
+        .add(InteractionNew {
+            contact_id: first.id,
+            occurred_at: now - 200,
+            created_at: now,
+            kind: InteractionKind::Call,
+            note: "first early".to_string(),
+            follow_up_at: None,
+        })
+        .expect("add interaction");
+    store
+        .interactions()
+        .add(InteractionNew {
+            contact_id: first.id,
+            occurred_at: now - 50,
+            created_at: now,
+            kind: InteractionKind::Email,
+            note: "first latest".to_string(),
+            follow_up_at: None,
+        })
+        .expect("add interaction");
+
+    store
+        .interactions()
+        .add(InteractionNew {
+            contact_id: second.id,
+            occurred_at: now - 10,
+            created_at: now,
+            kind: InteractionKind::Text,
+            note: "second latest".to_string(),
+            follow_up_at: None,
+        })
+        .expect("add interaction");
+
+    let latest = store
+        .interactions()
+        .latest_occurred_at_for_contacts(&[first.id, second.id])
+        .expect("latest interactions");
+    assert_eq!(latest.get(&first.id), Some(&(now - 50)));
+    assert_eq!(latest.get(&second.id), Some(&(now - 10)));
+}

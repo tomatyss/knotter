@@ -73,6 +73,24 @@ Output: JSON object containing:
 - `id` (string UUID)
 - `tag` (string, normalized)
 
+### `knotter loops apply --json`
+
+Output: JSON object containing:
+
+- `matched` (number of contacts that matched a loop rule or default)
+- `updated` (number of contacts updated)
+- `scheduled` (number of contacts scheduled from a missing touchpoint)
+- `skipped` (number of contacts skipped)
+- `dry_run` (boolean)
+- `changes` (array of objects):
+  - `id` (string UUID)
+  - `display_name` (string)
+  - `cadence_before` (number|null)
+  - `cadence_after` (number|null)
+  - `next_touchpoint_before` (number|null)
+  - `next_touchpoint_after` (number|null)
+  - `scheduled` (boolean)
+
 ### JSON for mutating commands
 
 For `add-contact`, `edit-contact`, `schedule`, `clear-schedule`, `add-note`, and `touch`,
@@ -84,7 +102,8 @@ JSON output includes the created/updated entity:
 Note: This output shape may be expanded in the future, but existing fields are stable.
 
 When `default_cadence_days` is set in config, `add-contact` uses it if
-`--cadence-days` is omitted.
+`--cadence-days` is omitted. If loop rules are configured, they take precedence
+over the default cadence when `--cadence-days` is omitted.
 
 ### `knotter import vcf --json`
 

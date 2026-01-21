@@ -10,7 +10,7 @@ use std::process::ExitCode;
 use tracing::debug;
 
 use crate::commands::{
-    backup, completions, contacts, interactions, remind, schedule, sync, tags, tui, Context,
+    backup, completions, contacts, interactions, loops, remind, schedule, sync, tags, tui, Context,
 };
 use crate::error::{exit_code_for, report_error};
 use knotter_config as config;
@@ -45,6 +45,8 @@ enum Command {
     Delete(contacts::DeleteArgs),
     #[command(subcommand)]
     Tag(tags::TagCommand),
+    #[command(subcommand)]
+    Loops(loops::LoopCommand),
     #[command(name = "add-note")]
     AddNote(interactions::AddNoteArgs),
     Touch(interactions::TouchArgs),
@@ -128,6 +130,9 @@ fn run(cli: Cli) -> Result<()> {
                     tags::TagCommand::Add(args) => tags::add_tag(&ctx, args),
                     tags::TagCommand::Rm(args) => tags::remove_tag(&ctx, args),
                     tags::TagCommand::Ls(args) => tags::list_tags(&ctx, args),
+                },
+                Command::Loops(cmd) => match cmd {
+                    loops::LoopCommand::Apply(args) => loops::apply_loops(&ctx, args),
                 },
                 Command::AddNote(args) => interactions::add_note(&ctx, args),
                 Command::Touch(args) => interactions::touch_contact(&ctx, args),

@@ -114,6 +114,36 @@ impl<'a> InteractionsRepo<'a> {
         Ok(map)
     }
 
+    pub fn latest_occurred_at_for_contacts(
+        &self,
+        contact_ids: &[ContactId],
+    ) -> Result<HashMap<ContactId, i64>> {
+        let mut map: HashMap<ContactId, i64> = HashMap::new();
+        if contact_ids.is_empty() {
+            return Ok(map);
+        }
+
+        let temp_table = TempContactIdTable::create(self.conn, contact_ids)?;
+        let temp_table_name = temp_table.name();
+
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT interactions.contact_id, MAX(interactions.occurred_at) AS last_at
+             FROM interactions
+             INNER JOIN {temp_table_name} tmp ON tmp.id = interactions.contact_id
+             GROUP BY interactions.contact_id;"
+        ))?;
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            let contact_id_raw: String = row.get(0)?;
+            let contact_id = ContactId::from_str(&contact_id_raw)
+                .map_err(|_| StoreError::InvalidId(contact_id_raw.clone()))?;
+            let last_at: i64 = row.get(1)?;
+            map.insert(contact_id, last_at);
+        }
+
+        Ok(map)
+    }
+
     pub fn touch_contact(
         &self,
         now_utc: i64,

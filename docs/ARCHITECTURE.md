@@ -675,6 +675,40 @@ Config keys (MVP):
 * `default_cadence_days = 30` (optional)
 * `notifications.enabled = true/false`
 * `notifications.backend = "stdout" | "desktop" | "email"` (MVP: stdout/desktop)
+* `loops.default_cadence_days = <int>` (optional, fallback cadence when no tag matches)
+* `loops.strategy = "shortest" | "priority"` (how to resolve multiple tag matches)
+* `loops.schedule_missing = true/false` (schedule when no `next_touchpoint_at`)
+* `loops.anchor = "now" | "created-at" | "last-interaction"`
+* `loops.apply_on_tag_change = true/false`
+* `loops.override_existing = true/false`
+* `[[loops.tags]]` with `tag`, `cadence_days`, optional `priority`
+
+Example loop policy:
+
+```
+[loops]
+default_cadence_days = 180
+strategy = "shortest"
+schedule_missing = true
+anchor = "created-at"
+apply_on_tag_change = false
+override_existing = false
+
+[[loops.tags]]
+tag = "friend"
+cadence_days = 90
+
+[[loops.tags]]
+tag = "family"
+cadence_days = 30
+priority = 10
+```
+
+Loop precedence:
+* Explicit `cadence_days` on a contact takes precedence unless `loops.override_existing = true`.
+* When `cadence_days` is unset, tag rules apply first; the loop default applies when no tag matches.
+* When `anchor = "last-interaction"`, scheduling occurs only after an interaction exists.
+* `loops.schedule_missing = true` only schedules contacts that have no `next_touchpoint_at`.
 
 Contact source config (optional):
 

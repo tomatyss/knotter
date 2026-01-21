@@ -613,7 +613,7 @@ A new user can install, run, and understand knotter using docs only.
 ### I3. Better scheduling UX
 - [ ] snooze workflow in TUI
 - [ ] “touch and reschedule” in one keypress
-- [ ] per-tag default cadence (e.g. friends 30d, family 14d)
+- [x] per-tag default cadence via loop policy (e.g. friends 90d, family 30d)
 
 ### I4. Privacy/security enhancements
 - [ ] optional DB encryption (careful: portability trade-offs)

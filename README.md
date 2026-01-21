@@ -50,9 +50,9 @@ Common dev commands:
 Create a contact and list it:
 
 ```
-knotter add-contact --name "Ada Lovelace" --email ada@example.com
+knotter add-contact --name "Ada Lovelace" --email ada@example.com --tag friend
 knotter list
-knotter list --filter "#friends due:soon"
+knotter list --filter "#friend due:soon"
 ```
 
 Schedule a touchpoint and see reminders:
@@ -66,6 +66,18 @@ Add an interaction:
 
 ```
 knotter add-note <id> --kind call --note "Caught up after the conference"
+```
+
+Apply keep-in-touch loops (tag-based cadences):
+
+```
+knotter loops apply
+```
+
+Apply loops immediately after tagging:
+
+```
+knotter tag add <id> friend --apply-loop
 ```
 
 JSON output is available for automation (see `docs/cli-output.md`).
@@ -138,6 +150,23 @@ default_cadence_days = 30
 [notifications]
 enabled = false
 backend = "stdout" # or "desktop"
+
+[loops]
+# Optional default when no tag matches (e.g., ~6 months)
+default_cadence_days = 180
+strategy = "shortest" # or "priority"
+schedule_missing = true
+anchor = "created-at" # now | created-at | last-interaction
+apply_on_tag_change = false
+override_existing = false
+
+[[loops.tags]]
+tag = "friend"
+cadence_days = 90
+
+[[loops.tags]]
+tag = "family"
+cadence_days = 30
 ```
 
 On Unix, the config file must be user-readable only (`chmod 600`).

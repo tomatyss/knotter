@@ -6,9 +6,12 @@ use crate::util::{
 };
 use anyhow::Result;
 use clap::Args;
+use knotter_config::LoopAnchor;
+use knotter_core::domain::TagName;
 use knotter_core::dto::{ContactDetailDto, ContactListItemDto, InteractionDto};
 use knotter_core::filter::parse_filter;
 use knotter_core::rules::compute_due_state;
+use knotter_core::rules::schedule_next;
 use knotter_store::query::ContactQuery;
 use knotter_store::repo::{ContactNew, ContactUpdate};
 
@@ -28,6 +31,8 @@ pub struct AddContactArgs {
     pub cadence_days: Option<i32>,
     #[arg(long)]
     pub next_touchpoint_at: Option<String>,
+    #[arg(long, value_name = "TAG")]
+    pub tag: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -71,9 +76,30 @@ pub fn add_contact(ctx: &Context<'_>, args: AddContactArgs) -> Result<()> {
         Some(value) => Some(parse_local_timestamp(&value)?),
         None => None,
     };
-    let cadence_days = args.cadence_days.or(ctx.config.default_cadence_days);
+    let tags = parse_tags(&args.tag)?;
+    let loop_cadence = ctx
+        .config
+        .loops
+        .policy
+        .resolve_cadence(tags.iter().map(|tag| tag.as_str()));
+    let cadence_days = args
+        .cadence_days
+        .or(loop_cadence)
+        .or(ctx.config.default_cadence_days);
+    let next_touchpoint_at = if next_touchpoint_at.is_none()
+        && ctx.config.loops.schedule_missing
+        && loop_cadence.is_some()
+    {
+        match (ctx.config.loops.anchor, cadence_days) {
+            (LoopAnchor::LastInteraction, _) => None,
+            (_, Some(cadence)) => Some(schedule_next(now, cadence)?),
+            (_, None) => None,
+        }
+    } else {
+        next_touchpoint_at
+    };
 
-    let contact = ctx.store.contacts().create(
+    let contact = ctx.store.contacts().create_with_tags(
         now,
         ContactNew {
             display_name: args.name,
@@ -85,6 +111,7 @@ pub fn add_contact(ctx: &Context<'_>, args: AddContactArgs) -> Result<()> {
             cadence_days,
             archived_at: None,
         },
+        tags,
     )?;
 
     if ctx.json {
@@ -346,4 +373,13 @@ fn update_is_empty(update: &ContactUpdate) -> bool {
         && update.next_touchpoint_at.is_none()
         && update.cadence_days.is_none()
         && update.archived_at.is_none()
+}
+
+fn parse_tags(tags: &[String]) -> Result<Vec<TagName>> {
+    let mut parsed = Vec::with_capacity(tags.len());
+    for raw in tags {
+        let tag = TagName::new(raw)?;
+        parsed.push(tag);
+    }
+    Ok(parsed)
 }
