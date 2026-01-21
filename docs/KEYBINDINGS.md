@@ -115,12 +115,14 @@ This is the default view: a scrollable contact list, with due indicators and tag
   Schedule next touchpoint (`Mode::ModalSchedule`).
 - `x`  
   Clear scheduled next touchpoint for selected (should confirm).
+- `A`  
+  Archive/unarchive selected contact (confirm required).
+- `v`  
+  Toggle showing archived contacts in the list.
 
 ### Optional (only if implemented)
 - `d`  
   Delete contact (dangerous; must confirm).
-- `A`  
-  Archive/unarchive contact (if archiving exists).
 
 ---
 

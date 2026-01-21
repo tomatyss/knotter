@@ -37,6 +37,7 @@ pub struct App {
     pub error: Option<String>,
     pub soon_days: i64,
     pub default_cadence_days: Option<i32>,
+    pub show_archived: bool,
     pub empty_hint: &'static str,
     actions: VecDeque<Action>,
     pub(crate) pending_select: Option<ContactId>,
@@ -59,6 +60,7 @@ impl App {
             error: None,
             soon_days,
             default_cadence_days,
+            show_archived: false,
             empty_hint: LIST_EMPTY,
             actions: VecDeque::new(),
             pending_select: None,
@@ -249,6 +251,16 @@ impl App {
                     return Some(Mode::ModalSchedule(ScheduleForm::new(id)));
                 }
             }
+            KeyCode::Char('v') => {
+                self.show_archived = !self.show_archived;
+                let status = if self.show_archived {
+                    "Showing archived contacts"
+                } else {
+                    "Hiding archived contacts"
+                };
+                self.set_status(status.to_string());
+                self.enqueue(Action::LoadList);
+            }
             KeyCode::Char('x') => {
                 if let Some(id) = self.selected_contact_id() {
                     let message = "Clear scheduled touchpoint? (y/n)".to_string();
@@ -256,6 +268,22 @@ impl App {
                         message,
                         ConfirmAction::ClearSchedule(id),
                     )));
+                }
+            }
+            KeyCode::Char('A') => {
+                if let Some(item) = self.contacts.get(self.selected) {
+                    let (message, action) = if item.archived_at.is_some() {
+                        (
+                            format!("Unarchive {}? (y/n)", item.display_name),
+                            ConfirmAction::UnarchiveContact(item.id),
+                        )
+                    } else {
+                        (
+                            format!("Archive {}? (y/n)", item.display_name),
+                            ConfirmAction::ArchiveContact(item.id),
+                        )
+                    };
+                    return Some(Mode::Confirm(ConfirmState::new(message, action)));
                 }
             }
             KeyCode::Char('r') => self.enqueue(Action::LoadList),
@@ -335,6 +363,22 @@ impl App {
                     message,
                     ConfirmAction::ClearSchedule(contact_id),
                 )));
+            }
+            KeyCode::Char('A') => {
+                if let Some(detail) = &self.detail {
+                    let (message, action) = if detail.archived_at.is_some() {
+                        (
+                            format!("Unarchive {}? (y/n)", detail.display_name),
+                            ConfirmAction::UnarchiveContact(contact_id),
+                        )
+                    } else {
+                        (
+                            format!("Archive {}? (y/n)", detail.display_name),
+                            ConfirmAction::ArchiveContact(contact_id),
+                        )
+                    };
+                    return Some(Mode::Confirm(ConfirmState::new(message, action)));
+                }
             }
             KeyCode::Char('r') => {
                 self.enqueue(Action::LoadDetail(contact_id));
@@ -972,6 +1016,8 @@ impl ScheduleForm {
 #[derive(Debug, Clone)]
 pub enum ConfirmAction {
     ClearSchedule(ContactId),
+    ArchiveContact(ContactId),
+    UnarchiveContact(ContactId),
 }
 
 #[derive(Debug, Clone)]
@@ -988,6 +1034,8 @@ impl ConfirmState {
     pub fn to_action(&self) -> Option<Action> {
         match self.action {
             ConfirmAction::ClearSchedule(id) => Some(Action::ClearSchedule(id)),
+            ConfirmAction::ArchiveContact(id) => Some(Action::ArchiveContact(id)),
+            ConfirmAction::UnarchiveContact(id) => Some(Action::UnarchiveContact(id)),
         }
     }
 }

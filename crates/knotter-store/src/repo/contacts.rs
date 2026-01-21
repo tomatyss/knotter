@@ -146,6 +146,22 @@ impl<'a> ContactsRepo<'a> {
         Ok(())
     }
 
+    pub fn archive(&self, now_utc: i64, id: ContactId) -> Result<Contact> {
+        let update = ContactUpdate {
+            archived_at: Some(Some(now_utc)),
+            ..Default::default()
+        };
+        self.update(now_utc, id, update)
+    }
+
+    pub fn unarchive(&self, now_utc: i64, id: ContactId) -> Result<Contact> {
+        let update = ContactUpdate {
+            archived_at: Some(None),
+            ..Default::default()
+        };
+        self.update(now_utc, id, update)
+    }
+
     pub fn list_all(&self) -> Result<Vec<Contact>> {
         let query = ContactQuery::default();
         self.list_contacts(&query, 0, 7, FixedOffset::east_opt(0).expect("utc offset"))

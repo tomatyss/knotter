@@ -8,6 +8,7 @@ pub struct ContactListItemDto {
     pub display_name: String,
     pub due_state: DueState,
     pub next_touchpoint_at: Option<i64>,
+    pub archived_at: Option<i64>,
     pub tags: Vec<String>,
 }
 
@@ -124,6 +125,7 @@ mod tests {
                 display_name: "Ada".to_string(),
                 due_state: DueState::Overdue,
                 next_touchpoint_at: Some(1),
+                archived_at: None,
                 tags: vec!["friends".to_string()],
             },
             ContactListItemDto {
@@ -131,6 +133,7 @@ mod tests {
                 display_name: "Grace".to_string(),
                 due_state: DueState::Today,
                 next_touchpoint_at: Some(2),
+                archived_at: None,
                 tags: Vec::new(),
             },
             ContactListItemDto {
@@ -138,6 +141,7 @@ mod tests {
                 display_name: "Tim".to_string(),
                 due_state: DueState::Soon,
                 next_touchpoint_at: Some(3),
+                archived_at: None,
                 tags: Vec::new(),
             },
             ContactListItemDto {
@@ -145,6 +149,7 @@ mod tests {
                 display_name: "Linus".to_string(),
                 due_state: DueState::Scheduled,
                 next_touchpoint_at: Some(4),
+                archived_at: None,
                 tags: Vec::new(),
             },
             ContactListItemDto {
@@ -152,6 +157,7 @@ mod tests {
                 display_name: "Ken".to_string(),
                 due_state: DueState::Unscheduled,
                 next_touchpoint_at: None,
+                archived_at: None,
                 tags: Vec::new(),
             },
         ];

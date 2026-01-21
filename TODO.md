@@ -210,7 +210,7 @@ Implement repositories (traits or concrete structs). Keep SQL internal.
   - [x] update `updated_at`
 - [x] `get_contact`
 - [x] `delete_contact` (hard delete MVP)
-- [ ] `archive_contact` (optional; if included, add CLI/TUI support later)
+- [x] `archive_contact` (optional; CLI/TUI support added)
 - [x] `list_contacts(query)`:
   - [x] supports text filters (name/email/phone/handle)
   - [x] supports tag filters via EXISTS

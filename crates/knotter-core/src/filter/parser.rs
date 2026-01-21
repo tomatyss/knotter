@@ -1,5 +1,5 @@
 use crate::domain::TagName;
-use crate::filter::ast::{ContactFilter, FilterExpr};
+use crate::filter::ast::{ArchivedSelector, ContactFilter, FilterExpr};
 use crate::filter::FilterParseError;
 use crate::rules::DueSelector;
 
@@ -17,6 +17,9 @@ pub fn parse_filter(input: &str) -> Result<ContactFilter, FilterParseError> {
         } else if let Some(selector_raw) = token.strip_prefix("due:") {
             let selector = parse_due_selector(selector_raw)?;
             terms.push(FilterExpr::Due(selector));
+        } else if let Some(selector_raw) = token.strip_prefix("archived:") {
+            let selector = parse_archived_selector(selector_raw)?;
+            terms.push(FilterExpr::Archived(selector));
         } else {
             terms.push(FilterExpr::Text(token.to_string()));
         }
@@ -36,11 +39,19 @@ fn parse_due_selector(raw: &str) -> Result<DueSelector, FilterParseError> {
     }
 }
 
+fn parse_archived_selector(raw: &str) -> Result<ArchivedSelector, FilterParseError> {
+    match raw {
+        "true" | "yes" | "1" | "archived" => Ok(ArchivedSelector::Archived),
+        "false" | "no" | "0" | "active" => Ok(ArchivedSelector::Active),
+        _ => Err(FilterParseError::InvalidArchivedSelector(raw.to_string())),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::parse_filter;
     use crate::domain::TagName;
-    use crate::filter::ast::FilterExpr;
+    use crate::filter::ast::{ArchivedSelector, FilterExpr};
     use crate::filter::FilterParseError;
     use crate::rules::DueSelector;
 
@@ -53,6 +64,21 @@ mod tests {
                 FilterExpr::Tag(TagName::new("friends").unwrap()),
                 FilterExpr::Due(DueSelector::Soon)
             ])
+        );
+    }
+
+    #[test]
+    fn parse_archived_selector() {
+        let filter = parse_filter("archived:true").unwrap();
+        assert_eq!(
+            filter,
+            FilterExpr::And(vec![FilterExpr::Archived(ArchivedSelector::Archived)])
+        );
+
+        let filter = parse_filter("archived:active").unwrap();
+        assert_eq!(
+            filter,
+            FilterExpr::And(vec![FilterExpr::Archived(ArchivedSelector::Active)])
         );
     }
 
@@ -80,6 +106,15 @@ mod tests {
         assert_eq!(
             err,
             FilterParseError::InvalidDueSelector("later".to_string())
+        );
+    }
+
+    #[test]
+    fn invalid_archived_is_error() {
+        let err = parse_filter("archived:maybe").unwrap_err();
+        assert_eq!(
+            err,
+            FilterParseError::InvalidArchivedSelector("maybe".to_string())
         );
     }
 }

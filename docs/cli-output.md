@@ -27,7 +27,11 @@ Each item matches `ContactListItemDto`:
 - `display_name` (string)
 - `due_state` (string enum: `unscheduled`, `overdue`, `today`, `soon`, `scheduled`)
 - `next_touchpoint_at` (number|null, unix seconds UTC)
+- `archived_at` (number|null, unix seconds UTC)
 - `tags` (array of strings)
+
+Archived contacts are excluded by default. Use `--include-archived` or `--only-archived`
+to change this behavior (or filter with `archived:true|false`).
 
 ### `knotter remind --json`
 
@@ -42,6 +46,9 @@ setting (CLI flag or config default). In JSON mode, notifications only run when
 `--notify` is provided explicitly. When `notifications.backend = "stdout"`,
 `--notify --json` returns a non-zero exit code because stdout notifications
 cannot run without corrupting JSON output.
+
+Reminder items include the `archived_at` field from `ContactListItemDto`, but it
+will always be null because archived contacts are excluded from reminders.
 
 ### `knotter show <id> --json`
 
@@ -93,7 +100,8 @@ Output: JSON object containing:
 
 ### JSON for mutating commands
 
-For `add-contact`, `edit-contact`, `schedule`, `clear-schedule`, `add-note`, and `touch`,
+For `add-contact`, `edit-contact`, `archive-contact`, `unarchive-contact`, `schedule`,
+`clear-schedule`, `add-note`, and `touch`,
 JSON output includes the created/updated entity:
 
 - Contact mutations return a serialized `Contact` object.

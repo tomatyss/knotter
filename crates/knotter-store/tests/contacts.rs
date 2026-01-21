@@ -154,6 +154,42 @@ fn tags_attach_and_list() {
 }
 
 #[test]
+fn archive_and_unarchive_contact() {
+    let store = Store::open_in_memory().expect("open in memory");
+    store.migrate().expect("migrate");
+
+    let now = 1_700_000_000;
+    let contact = store
+        .contacts()
+        .create(
+            now,
+            ContactNew {
+                display_name: "Ada Lovelace".to_string(),
+                email: None,
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create contact");
+
+    let archived = store
+        .contacts()
+        .archive(now + 10, contact.id)
+        .expect("archive contact");
+    assert!(archived.archived_at.is_some());
+
+    let unarchived = store
+        .contacts()
+        .unarchive(now + 20, contact.id)
+        .expect("unarchive contact");
+    assert!(unarchived.archived_at.is_none());
+}
+
+#[test]
 fn list_names_for_contacts_handles_large_inputs() {
     let store = Store::open_in_memory().expect("open in memory");
     store.migrate().expect("migrate");

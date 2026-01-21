@@ -68,6 +68,13 @@ Add an interaction:
 knotter add-note <id> --kind call --note "Caught up after the conference"
 ```
 
+Archive or unarchive a contact:
+
+```
+knotter archive-contact <id>
+knotter unarchive-contact <id>
+```
+
 Apply keep-in-touch loops (tag-based cadences):
 
 ```

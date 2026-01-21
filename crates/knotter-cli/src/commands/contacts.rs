@@ -5,7 +5,7 @@ use crate::util::{
     local_offset, now_utc, parse_contact_id, parse_local_timestamp,
 };
 use anyhow::Result;
-use clap::Args;
+use clap::{ArgAction, Args};
 use knotter_config::LoopAnchor;
 use knotter_core::domain::TagName;
 use knotter_core::dto::{ContactDetailDto, ContactListItemDto, InteractionDto};
@@ -63,10 +63,24 @@ pub struct ShowArgs {
 pub struct ListArgs {
     #[arg(long)]
     pub filter: Option<String>,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub include_archived: bool,
+    #[arg(long, action = ArgAction::SetTrue, conflicts_with = "include_archived")]
+    pub only_archived: bool,
 }
 
 #[derive(Debug, Args)]
 pub struct DeleteArgs {
+    pub id: String,
+}
+
+#[derive(Debug, Args)]
+pub struct ArchiveArgs {
+    pub id: String,
+}
+
+#[derive(Debug, Args)]
+pub struct UnarchiveArgs {
     pub id: String,
 }
 
@@ -274,9 +288,10 @@ pub fn show_contact(ctx: &Context<'_>, args: ShowArgs) -> Result<()> {
 }
 
 pub fn list_contacts(ctx: &Context<'_>, args: ListArgs) -> Result<()> {
-    let filter_text = args.filter.unwrap_or_default();
-    let parsed = parse_filter(&filter_text)?;
-    let query = ContactQuery::from_filter(&parsed)?;
+    let filter_text = args.filter.as_deref().unwrap_or_default();
+    let parsed = parse_filter(filter_text)?;
+    let mut query = ContactQuery::from_filter(&parsed)?;
+    apply_archived_filter(&mut query, &args)?;
 
     let now = now_utc();
     let offset = local_offset();
@@ -304,6 +319,7 @@ pub fn list_contacts(ctx: &Context<'_>, args: ListArgs) -> Result<()> {
             display_name: contact.display_name,
             due_state,
             next_touchpoint_at: contact.next_touchpoint_at,
+            archived_at: contact.archived_at,
             tags: tag_names,
         });
     }
@@ -355,6 +371,28 @@ pub fn delete_contact(ctx: &Context<'_>, args: DeleteArgs) -> Result<()> {
     Ok(())
 }
 
+pub fn archive_contact(ctx: &Context<'_>, args: ArchiveArgs) -> Result<()> {
+    let id = parse_contact_id(&args.id)?;
+    let contact = ctx.store.contacts().archive(now_utc(), id)?;
+    if ctx.json {
+        print_json(&contact)?;
+    } else {
+        println!("archived {} {}", contact.id, contact.display_name);
+    }
+    Ok(())
+}
+
+pub fn unarchive_contact(ctx: &Context<'_>, args: UnarchiveArgs) -> Result<()> {
+    let id = parse_contact_id(&args.id)?;
+    let contact = ctx.store.contacts().unarchive(now_utc(), id)?;
+    if ctx.json {
+        print_json(&contact)?;
+    } else {
+        println!("unarchived {} {}", contact.id, contact.display_name);
+    }
+    Ok(())
+}
+
 fn normalize_optional_value(value: String) -> Option<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -373,6 +411,27 @@ fn update_is_empty(update: &ContactUpdate) -> bool {
         && update.next_touchpoint_at.is_none()
         && update.cadence_days.is_none()
         && update.archived_at.is_none()
+}
+
+fn apply_archived_filter(query: &mut ContactQuery, args: &ListArgs) -> Result<()> {
+    if args.only_archived {
+        if let Some(selector) = query.archived {
+            if selector != knotter_core::filter::ArchivedSelector::Archived {
+                return Err(invalid_input(
+                    "archived:false conflicts with --only-archived",
+                ));
+            }
+            return Ok(());
+        }
+        query.archived = Some(knotter_core::filter::ArchivedSelector::Archived);
+        return Ok(());
+    }
+
+    if query.archived.is_none() && !args.include_archived {
+        query.archived = Some(knotter_core::filter::ArchivedSelector::Active);
+    }
+
+    Ok(())
 }
 
 fn parse_tags(tags: &[String]) -> Result<Vec<TagName>> {

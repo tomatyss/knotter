@@ -4,6 +4,7 @@ use anyhow::Result;
 use chrono::FixedOffset;
 use knotter_core::domain::{ContactId, TagName};
 use knotter_core::dto::{ContactDetailDto, ContactListItemDto, InteractionDto};
+use knotter_core::filter::ArchivedSelector;
 use knotter_core::rules::compute_due_state;
 use knotter_core::time::{local_offset, now_utc};
 use knotter_store::repo::{ContactNew, ContactUpdate, InteractionNew};
@@ -23,6 +24,8 @@ pub enum Action {
     SetTags(ContactId, Vec<TagName>),
     ScheduleContact(ContactId, i64),
     ClearSchedule(ContactId),
+    ArchiveContact(ContactId),
+    UnarchiveContact(ContactId),
 }
 
 pub fn execute_action(app: &mut App, store: &Store, action: Action) -> Result<()> {
@@ -35,6 +38,10 @@ pub fn execute_action(app: &mut App, store: &Store, action: Action) -> Result<()
             } else {
                 ContactQuery::default()
             };
+            let mut query = query;
+            if !app.show_archived && query.archived.is_none() {
+                query.archived = Some(ArchivedSelector::Active);
+            }
             let contacts = store
                 .contacts()
                 .list_contacts(&query, now, app.soon_days, offset)?;
@@ -146,6 +153,20 @@ pub fn execute_action(app: &mut App, store: &Store, action: Action) -> Result<()
             app.enqueue(Action::LoadDetail(contact_id));
             app.enqueue(Action::LoadList);
         }
+        Action::ArchiveContact(contact_id) => {
+            let now = now_utc();
+            let contact = store.contacts().archive(now, contact_id)?;
+            app.set_status(format!("Archived {}", contact.display_name));
+            app.enqueue(Action::LoadDetail(contact_id));
+            app.enqueue(Action::LoadList);
+        }
+        Action::UnarchiveContact(contact_id) => {
+            let now = now_utc();
+            let contact = store.contacts().unarchive(now, contact_id)?;
+            app.set_status(format!("Unarchived {}", contact.display_name));
+            app.enqueue(Action::LoadDetail(contact_id));
+            app.enqueue(Action::LoadList);
+        }
     }
 
     Ok(())
@@ -167,6 +188,7 @@ fn build_list_items(
             display_name: contact.display_name,
             due_state,
             next_touchpoint_at: contact.next_touchpoint_at,
+            archived_at: contact.archived_at,
             tags,
         });
     }

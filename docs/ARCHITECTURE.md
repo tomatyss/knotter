@@ -250,6 +250,9 @@ knotter defines a minimal filter string that compiles into a query AST.
   - `due:soon`
   - `due:any` (any scheduled, including overdue/today/soon/later)
   - `due:none` (unscheduled)
+- Archived tokens:
+  - `archived:true` (only archived contacts)
+  - `archived:false` (only active contacts)
 
 Combining:
 - Default combination is AND across tokens.
@@ -258,12 +261,16 @@ Combining:
 - (Optional later) OR groups:
   - `#designer,#engineer` means either tag
 
+Default UI behavior:
+- CLI/TUI list views exclude archived contacts unless explicitly included via flags or `archived:true`.
+
 ### 5.2 AST types
 
 - `FilterExpr`
   - `Text(String)`
   - `Tag(String)` (normalized)
   - `Due(DueSelector)`
+  - `Archived(ArchivedSelector)`
   - `And(Vec<FilterExpr>)`
   - (Later) `Or(Vec<FilterExpr>)`
 
@@ -272,9 +279,11 @@ Combining:
 - Tokenize on whitespace.
 - Tokens starting with `#` become Tag filters.
 - Tokens starting with `due:` become Due filters.
+- Tokens starting with `archived:` become Archived filters.
 - Everything else becomes Text filters.
 - Invalid tokens:
   - unknown `due:` value -> return parse error
+  - unknown `archived:` value -> return parse error
   - empty tag after `#` -> parse error
 
 The parser returns:
@@ -341,7 +350,8 @@ Avoid leaking SQL details to callers.
 * `update_contact(...) -> Contact`
 * `get_contact(id) -> Option<Contact>`
 * `delete_contact(id) -> ()` (hard delete MVP)
-* `archive_contact(id) -> ()` (optional)
+* `archive_contact(id) -> Contact`
+* `unarchive_contact(id) -> Contact`
 * `list_contacts(query: ContactQuery) -> Vec<ContactListItem>`
 
 `ContactListItem` is a lightweight projection for list views:

@@ -63,6 +63,7 @@ pub fn remind(ctx: &Context<'_>, args: RemindArgs) -> Result<()> {
             display_name: contact.display_name,
             due_state,
             next_touchpoint_at: contact.next_touchpoint_at,
+            archived_at: contact.archived_at,
             tags: tag_names,
         });
     }

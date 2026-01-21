@@ -72,8 +72,8 @@ fn render_header(frame: &mut Frame<'_>, area: Rect, app: &App) {
 
 fn render_footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let hint = match app.mode {
-        Mode::List => "j/k move  enter detail  / filter  a add  e edit  n note  t tags  s schedule  x clear  ? help",
-        Mode::Detail(_) => "esc back  j/k scroll  e edit  n note  t tags  s schedule  x clear  ? help",
+        Mode::List => "j/k move  enter detail  / filter  a add  e edit  n note  t tags  s schedule  x clear  A archive  v archived  ? help",
+        Mode::Detail(_) => "esc back  j/k scroll  e edit  n note  t tags  s schedule  x clear  A archive  ? help",
         Mode::FilterEditing => "enter apply  esc cancel",
         _ => "tab next  shift+tab prev  enter select  esc cancel",
     };
@@ -129,18 +129,33 @@ fn render_list(frame: &mut Frame<'_>, area: Rect, app: &App) {
                     .collect::<Vec<_>>()
                     .join(" ")
             };
-            let line = Line::from(vec![
-                Span::styled(
-                    contact.display_name.clone(),
-                    Style::default().add_modifier(Modifier::BOLD),
-                ),
+            let name_style = if contact.archived_at.is_some() {
+                Style::default().fg(Color::DarkGray)
+            } else {
+                Style::default().add_modifier(Modifier::BOLD)
+            };
+            let archived_badge = if contact.archived_at.is_some() {
+                Some(Span::styled(
+                    "[archived]",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ))
+            } else {
+                None
+            };
+            let mut spans = vec![
+                Span::styled(contact.display_name.clone(), name_style),
                 Span::raw(" "),
-                due_span,
-                Span::raw("  "),
-                Span::raw(next),
-                Span::raw("  "),
-                Span::styled(tags, Style::default().fg(Color::DarkGray)),
-            ]);
+            ];
+            if let Some(badge) = archived_badge {
+                spans.push(badge);
+                spans.push(Span::raw(" "));
+            }
+            spans.push(due_span);
+            spans.push(Span::raw("  "));
+            spans.push(Span::raw(next));
+            spans.push(Span::raw("  "));
+            spans.push(Span::styled(tags, Style::default().fg(Color::DarkGray)));
+            let line = Line::from(spans);
             ListItem::new(line)
         })
         .collect();
@@ -171,7 +186,7 @@ fn render_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(8), Constraint::Min(4)])
+        .constraints([Constraint::Length(9), Constraint::Min(4)])
         .split(area);
 
     let mut info_lines = vec![
@@ -206,6 +221,13 @@ fn render_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
             "Next touchpoint: {}",
             detail
                 .next_touchpoint_at
+                .map(format_timestamp_date)
+                .unwrap_or_else(|| "-".to_string())
+        )),
+        Line::from(format!(
+            "Archived: {}",
+            detail
+                .archived_at
                 .map(format_timestamp_date)
                 .unwrap_or_else(|| "-".to_string())
         )),
@@ -463,12 +485,12 @@ fn render_help(frame: &mut Frame<'_>, area: Rect) {
 
     let text = vec![
         Line::from("Global: q quit, Ctrl+C quit, ? help"),
-        Line::from("List: j/k move, enter detail, / filter, a add, e edit, n note, t tags, s schedule, x clear"),
+        Line::from("List: j/k move, enter detail, / filter, a add, e edit, n note, t tags, s schedule, x clear, A archive, v archived"),
         Line::from("Filter: enter apply, esc cancel"),
-        Line::from("Detail: esc back, j/k scroll, e edit, n note, t tags, s schedule, x clear"),
+        Line::from("Detail: esc back, j/k scroll, e edit, n note, t tags, s schedule, x clear, A archive"),
         Line::from("Modals: tab/shift+tab move, enter activate, esc cancel"),
         Line::from(""),
-        Line::from("Filter syntax: #tag, due:overdue|today|soon|any|none, text matches name/email/phone/handle"),
+        Line::from("Filter syntax: #tag, due:overdue|today|soon|any|none, archived:true|false, text matches name/email/phone/handle"),
     ];
 
     let paragraph = Paragraph::new(text)

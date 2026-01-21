@@ -83,6 +83,23 @@ fn filter_tags_and_due() {
         )
         .expect("create contact");
 
+    let _archived = store
+        .contacts()
+        .create(
+            now,
+            ContactNew {
+                display_name: "Archived".to_string(),
+                email: None,
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: Some(now - 60),
+            },
+        )
+        .expect("create archived contact");
+
     store
         .tags()
         .add_tag_to_contact(
@@ -149,7 +166,7 @@ fn filter_tags_and_due() {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].display_name, "Tim");
 
-    let filter = parse_filter("due:none").expect("parse filter");
+    let filter = parse_filter("due:none archived:false").expect("parse filter");
     let query = ContactQuery::from_filter(&filter).expect("build query");
     let results = store
         .contacts()
@@ -157,4 +174,21 @@ fn filter_tags_and_due() {
         .expect("list contacts");
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].display_name, "Linus");
+
+    let filter = parse_filter("archived:active").expect("parse filter");
+    let query = ContactQuery::from_filter(&filter).expect("build query");
+    let results = store
+        .contacts()
+        .list_contacts(&query, now, 7, offset)
+        .expect("list contacts");
+    assert_eq!(results.len(), 4);
+
+    let filter = parse_filter("archived:true").expect("parse filter");
+    let query = ContactQuery::from_filter(&filter).expect("build query");
+    let results = store
+        .contacts()
+        .list_contacts(&query, now, 7, offset)
+        .expect("list contacts");
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].display_name, "Archived");
 }

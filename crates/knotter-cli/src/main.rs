@@ -43,6 +43,10 @@ enum Command {
     Show(contacts::ShowArgs),
     List(contacts::ListArgs),
     Delete(contacts::DeleteArgs),
+    #[command(name = "archive-contact")]
+    ArchiveContact(contacts::ArchiveArgs),
+    #[command(name = "unarchive-contact")]
+    UnarchiveContact(contacts::UnarchiveArgs),
     #[command(subcommand)]
     Tag(tags::TagCommand),
     #[command(subcommand)]
@@ -126,6 +130,8 @@ fn run(cli: Cli) -> Result<()> {
                 Command::Show(args) => contacts::show_contact(&ctx, args),
                 Command::List(args) => contacts::list_contacts(&ctx, args),
                 Command::Delete(args) => contacts::delete_contact(&ctx, args),
+                Command::ArchiveContact(args) => contacts::archive_contact(&ctx, args),
+                Command::UnarchiveContact(args) => contacts::unarchive_contact(&ctx, args),
                 Command::Tag(cmd) => match cmd {
                     tags::TagCommand::Add(args) => tags::add_tag(&ctx, args),
                     tags::TagCommand::Rm(args) => tags::remove_tag(&ctx, args),

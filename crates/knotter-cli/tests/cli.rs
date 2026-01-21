@@ -567,6 +567,73 @@ fn cli_export_json_with_out_and_json_emits_report() {
 }
 
 #[test]
+fn cli_archive_and_list_filters_archived() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+
+    let active = run_cmd_json(&db_path, &["add-contact", "--name", "Active"]);
+    let archived = run_cmd_json(&db_path, &["add-contact", "--name", "Archived"]);
+    let archived_id = archived["id"].as_str().expect("archived id");
+
+    let archived_out = run_cmd_json(&db_path, &["archive-contact", archived_id]);
+    assert!(archived_out["archived_at"].is_number());
+
+    let list = run_cmd_json(&db_path, &["list"]);
+    let items = list.as_array().expect("list array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["id"], active["id"]);
+    assert!(items[0]["archived_at"].is_null());
+
+    let list = run_cmd_json(&db_path, &["list", "--include-archived"]);
+    let items = list.as_array().expect("list array");
+    assert_eq!(items.len(), 2);
+    let archived_item = items
+        .iter()
+        .find(|item| item["id"] == archived["id"])
+        .expect("archived item");
+    assert!(archived_item["archived_at"].is_number());
+
+    let list = run_cmd_json(&db_path, &["list", "--only-archived"]);
+    let items = list.as_array().expect("list array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["id"], archived["id"]);
+
+    let unarchived_out = run_cmd_json(&db_path, &["unarchive-contact", archived_id]);
+    assert!(unarchived_out["archived_at"].is_null());
+}
+
+#[test]
+fn cli_list_archived_filter_tokens() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+
+    let active = run_cmd_json(&db_path, &["add-contact", "--name", "Active"]);
+    let archived = run_cmd_json(&db_path, &["add-contact", "--name", "Archived"]);
+    let archived_id = archived["id"].as_str().expect("archived id");
+
+    let archived_out = run_cmd_json(&db_path, &["archive-contact", archived_id]);
+    assert!(archived_out["archived_at"].is_number());
+
+    let list = run_cmd_json(&db_path, &["list", "--filter", "archived:true"]);
+    let items = list.as_array().expect("list array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["id"], archived["id"]);
+
+    let list = run_cmd_json(&db_path, &["list", "--filter", "archived:false"]);
+    let items = list.as_array().expect("list array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["id"], active["id"]);
+
+    let list = run_cmd_json(
+        &db_path,
+        &["list", "--only-archived", "--filter", "archived:true"],
+    );
+    let items = list.as_array().expect("list array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["id"], archived["id"]);
+}
+
+#[test]
 fn cli_backup_writes_file() {
     let temp = TempDir::new().expect("temp dir");
     let db_path = temp.path().join("knotter.sqlite3");

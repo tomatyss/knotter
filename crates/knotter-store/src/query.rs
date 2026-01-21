@@ -1,7 +1,7 @@
 use crate::error::{Result, StoreError};
 use chrono::{DateTime, Duration, FixedOffset, TimeZone, Utc};
 use knotter_core::domain::TagName;
-use knotter_core::filter::{ContactFilter, FilterExpr};
+use knotter_core::filter::{ArchivedSelector, ContactFilter, FilterExpr};
 use knotter_core::rules::{validate_soon_days, DueSelector};
 use rusqlite::types::Value;
 
@@ -10,6 +10,7 @@ pub struct ContactQuery {
     pub text_terms: Vec<String>,
     pub tags: Vec<TagName>,
     pub due: Option<DueSelector>,
+    pub archived: Option<ArchivedSelector>,
 }
 
 pub struct SqlQuery {
@@ -42,6 +43,14 @@ impl ContactQuery {
                     ));
                 }
                 self.due = Some(*selector);
+            }
+            FilterExpr::Archived(selector) => {
+                if self.archived.is_some() {
+                    return Err(StoreError::InvalidFilter(
+                        "multiple archived filters are not supported".to_string(),
+                    ));
+                }
+                self.archived = Some(*selector);
             }
             FilterExpr::And(terms) => {
                 for term in terms {
@@ -111,6 +120,13 @@ impl ContactQuery {
             }
         }
 
+        if let Some(selector) = self.archived {
+            match selector {
+                ArchivedSelector::Archived => clauses.push("archived_at IS NOT NULL".to_string()),
+                ArchivedSelector::Active => clauses.push("archived_at IS NULL".to_string()),
+            }
+        }
+
         let mut sql = String::from(
             "SELECT id, display_name, email, phone, handle, timezone, next_touchpoint_at, cadence_days, created_at, updated_at, archived_at FROM contacts",
         );
@@ -121,7 +137,8 @@ impl ContactQuery {
         }
 
         sql.push_str(
-            " ORDER BY CASE
+            " ORDER BY (archived_at IS NOT NULL) ASC,
+            CASE
                 WHEN next_touchpoint_at IS NULL THEN 4
                 WHEN next_touchpoint_at < ? THEN 0
                 WHEN next_touchpoint_at >= ? AND next_touchpoint_at < ? THEN 1
