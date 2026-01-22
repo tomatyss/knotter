@@ -539,6 +539,7 @@ Import/export works reliably with predictable mappings and test coverage.
 - [x] Implement stdout backend (always available)
 - [x] Implement desktop backend behind `desktop-notify` feature:
   - [x] if it fails, fallback to stdout
+- [x] Implement email backend behind `email-notify` feature (SMTP via config + env)
 - [x] Wire `knotter remind --notify` to notifier selection
 - [x] Add config support (optional MVP):
   - [x] default notify on/off

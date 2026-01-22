@@ -61,3 +61,6 @@ systemctl --user enable --now knotter-remind.timer
   for a single run.
 - If `notifications.backend = "stdout"`, `--notify` prints the full reminder list
   (same as human output). This backend cannot be used with `--json`.
+- For email delivery, build with the `email-notify` feature and configure
+  `[notifications.email]` in your config; secrets should be provided via
+  `password_env` (see README).

@@ -522,7 +522,7 @@ Backends:
 
 * Stdout (always available)
 * Desktop notification (optional feature flag)
-* Email (optional, post-MVP)
+* Email (optional feature flag, SMTP via config/env)
 
 Behavior:
 
@@ -684,7 +684,16 @@ Config keys (MVP):
 * `due_soon_days = 7`
 * `default_cadence_days = 30` (optional)
 * `notifications.enabled = true/false`
-* `notifications.backend = "stdout" | "desktop" | "email"` (MVP: stdout/desktop)
+* `notifications.backend = "stdout" | "desktop" | "email"` (email requires `email-notify`)
+* `notifications.email.from = "Knotter <knotter@example.com>"`
+* `notifications.email.to = ["you@example.com"]`
+* `notifications.email.smtp_host = "smtp.example.com"`
+* `notifications.email.smtp_port = 587` (optional)
+* `notifications.email.username = "user@example.com"` (optional)
+* `notifications.email.password_env = "KNOTTER_SMTP_PASSWORD"` (required if username set)
+* `notifications.email.subject_prefix = "knotter reminders"` (optional)
+* `notifications.email.tls = "start-tls" | "tls" | "none"`
+* `notifications.email.timeout_seconds = 20` (optional)
 * `loops.default_cadence_days = <int>` (optional, fallback cadence when no tag matches)
 * `loops.strategy = "shortest" | "priority"` (how to resolve multiple tag matches)
 * `loops.schedule_missing = true/false` (schedule when no `next_touchpoint_at`)

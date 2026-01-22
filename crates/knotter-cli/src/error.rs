@@ -97,6 +97,7 @@ fn config_exit_code(err: &ConfigError) -> u8 {
         | ConfigError::InvalidContactSourceName(_)
         | ConfigError::DuplicateContactSourceName(_)
         | ConfigError::InvalidContactSourceField { .. }
+        | ConfigError::InvalidNotificationsEmailField { .. }
         | ConfigError::Read { .. }
         | ConfigError::Parse { .. } => EXIT_INVALID_INPUT,
     }

@@ -27,6 +27,20 @@ pub struct AppConfig {
 pub struct NotificationsConfig {
     pub enabled: bool,
     pub backend: NotificationBackend,
+    pub email: Option<NotificationsEmailConfig>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NotificationsEmailConfig {
+    pub from: String,
+    pub to: Vec<String>,
+    pub subject_prefix: String,
+    pub smtp_host: String,
+    pub smtp_port: Option<u16>,
+    pub username: Option<String>,
+    pub password_env: Option<String>,
+    pub tls: EmailTls,
+    pub timeout_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -101,6 +115,16 @@ pub struct MacosSourceConfig {
 pub enum NotificationBackend {
     Stdout,
     Desktop,
+    Email,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum EmailTls {
+    None,
+    #[default]
+    StartTls,
+    Tls,
 }
 
 impl Default for AppConfig {
@@ -111,6 +135,7 @@ impl Default for AppConfig {
             notifications: NotificationsConfig {
                 enabled: false,
                 backend: NotificationBackend::Desktop,
+                email: None,
             },
             loops: LoopConfig::default(),
             contacts: ContactsConfig::default(),
@@ -146,6 +171,8 @@ pub enum ConfigError {
     DuplicateContactSourceName(String),
     #[error("invalid contact source {source_name} field: {field}")]
     InvalidContactSourceField { source_name: String, field: String },
+    #[error("invalid notifications email field: {field}")]
+    InvalidNotificationsEmailField { field: String },
     #[error("failed to read config file {path}: {source}")]
     Read {
         path: PathBuf,
@@ -177,6 +204,21 @@ struct ConfigFile {
 struct NotificationsFile {
     enabled: Option<bool>,
     backend: Option<NotificationBackend>,
+    email: Option<NotificationsEmailFile>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NotificationsEmailFile {
+    from: Option<String>,
+    to: Option<Vec<String>>,
+    subject_prefix: Option<String>,
+    smtp_host: Option<String>,
+    smtp_port: Option<u16>,
+    username: Option<String>,
+    password_env: Option<String>,
+    tls: Option<EmailTls>,
+    timeout_seconds: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -303,6 +345,18 @@ fn merge_config(parsed: ConfigFile) -> Result<AppConfig> {
         if let Some(backend) = notifications.backend {
             config.notifications.backend = backend;
         }
+        if let Some(email) = notifications.email {
+            config.notifications.email = Some(merge_notifications_email(email)?);
+        }
+    }
+
+    if config.notifications.enabled
+        && config.notifications.backend == NotificationBackend::Email
+        && config.notifications.email.is_none()
+    {
+        return Err(ConfigError::InvalidNotificationsEmailField {
+            field: "notifications.email".to_string(),
+        });
     }
 
     if let Some(loops) = parsed.loops {
@@ -409,6 +463,75 @@ fn merge_config(parsed: ConfigFile) -> Result<AppConfig> {
     Ok(config)
 }
 
+fn merge_notifications_email(file: NotificationsEmailFile) -> Result<NotificationsEmailConfig> {
+    let from = normalize_required_email_field(file.from, "notifications.email.from")?;
+    validate_email_address(&from, "notifications.email.from")?;
+    let to_values = file
+        .to
+        .ok_or_else(|| ConfigError::InvalidNotificationsEmailField {
+            field: "notifications.email.to".to_string(),
+        })?;
+    let mut to = Vec::new();
+    for value in to_values {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return Err(ConfigError::InvalidNotificationsEmailField {
+                field: "notifications.email.to".to_string(),
+            });
+        }
+        validate_email_address(trimmed, "notifications.email.to")?;
+        to.push(trimmed.to_string());
+    }
+    if to.is_empty() {
+        return Err(ConfigError::InvalidNotificationsEmailField {
+            field: "notifications.email.to".to_string(),
+        });
+    }
+
+    let smtp_host =
+        normalize_required_email_field(file.smtp_host, "notifications.email.smtp_host")?;
+    let smtp_port = match file.smtp_port {
+        Some(0) => {
+            return Err(ConfigError::InvalidNotificationsEmailField {
+                field: "notifications.email.smtp_port".to_string(),
+            })
+        }
+        Some(port) => Some(port),
+        None => None,
+    };
+    let subject_prefix = normalize_optional_string(file.subject_prefix)
+        .unwrap_or_else(|| "knotter reminders".to_string());
+    let username = normalize_optional_string(file.username);
+    let password_env = normalize_optional_string(file.password_env);
+    if username.is_some() != password_env.is_some() {
+        return Err(ConfigError::InvalidNotificationsEmailField {
+            field: "notifications.email.username/password_env".to_string(),
+        });
+    }
+    let tls = file.tls.unwrap_or_default();
+    let timeout_seconds = match file.timeout_seconds {
+        Some(0) => {
+            return Err(ConfigError::InvalidNotificationsEmailField {
+                field: "notifications.email.timeout_seconds".to_string(),
+            })
+        }
+        Some(value) => Some(value),
+        None => None,
+    };
+
+    Ok(NotificationsEmailConfig {
+        from,
+        to,
+        subject_prefix,
+        smtp_host,
+        smtp_port,
+        username,
+        password_env,
+        tls,
+        timeout_seconds,
+    })
+}
+
 fn normalize_source_name(name: &str) -> Result<String> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
@@ -426,6 +549,28 @@ fn normalize_optional_string(value: Option<String>) -> Option<String> {
             Some(trimmed.to_string())
         }
     })
+}
+
+fn normalize_required_email_field(value: Option<String>, field: &str) -> Result<String> {
+    let value = value.ok_or_else(|| ConfigError::InvalidNotificationsEmailField {
+        field: field.to_string(),
+    })?;
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(ConfigError::InvalidNotificationsEmailField {
+            field: field.to_string(),
+        });
+    }
+    Ok(trimmed.to_string())
+}
+
+fn validate_email_address(value: &str, field: &str) -> Result<()> {
+    if value.parse::<lettre::message::Mailbox>().is_err() {
+        return Err(ConfigError::InvalidNotificationsEmailField {
+            field: field.to_string(),
+        });
+    }
+    Ok(())
 }
 
 fn normalize_optional_tag(value: Option<String>, source_name: &str) -> Result<Option<String>> {
@@ -485,8 +630,9 @@ fn ensure_permissions(_path: &Path) -> Result<()> {
 mod tests {
     use super::{
         load_at_path, merge_config, CardDavSourceConfig, ConfigFile, ContactSourceFile,
-        ContactSourceKind, ContactsFile, LoopAnchor, LoopConfigFile, LoopRuleFile, LoopStrategy,
-        MacosSourceConfig, NotificationBackend, NotificationsFile,
+        ContactSourceKind, ContactsFile, EmailTls, LoopAnchor, LoopConfigFile, LoopRuleFile,
+        LoopStrategy, MacosSourceConfig, NotificationBackend, NotificationsEmailFile,
+        NotificationsFile,
     };
     use std::fs;
     use std::path::Path;
@@ -510,6 +656,7 @@ mod tests {
             notifications: Some(NotificationsFile {
                 enabled: Some(true),
                 backend: Some(NotificationBackend::Desktop),
+                email: None,
             }),
             loops: None,
             contacts: None,
@@ -519,6 +666,142 @@ mod tests {
         assert_eq!(merged.default_cadence_days, Some(14));
         assert!(merged.notifications.enabled);
         assert_eq!(merged.notifications.backend, NotificationBackend::Desktop);
+    }
+
+    #[test]
+    fn merge_config_parses_email_notifications() {
+        let parsed = ConfigFile {
+            due_soon_days: None,
+            default_cadence_days: None,
+            notifications: Some(NotificationsFile {
+                enabled: Some(true),
+                backend: Some(NotificationBackend::Email),
+                email: Some(NotificationsEmailFile {
+                    from: Some("Knotter <knotter@example.com>".to_string()),
+                    to: Some(vec![
+                        "one@example.com".to_string(),
+                        " two@example.com ".to_string(),
+                    ]),
+                    subject_prefix: Some("Reminders".to_string()),
+                    smtp_host: Some("smtp.example.com".to_string()),
+                    smtp_port: Some(587),
+                    username: Some("user@example.com".to_string()),
+                    password_env: Some("KNOTTER_SMTP_PASSWORD".to_string()),
+                    tls: Some(EmailTls::StartTls),
+                    timeout_seconds: Some(20),
+                }),
+            }),
+            loops: None,
+            contacts: None,
+        };
+
+        let merged = merge_config(parsed).expect("merge");
+        assert_eq!(merged.notifications.backend, NotificationBackend::Email);
+        let email = merged.notifications.email.expect("email config");
+        assert_eq!(email.from, "Knotter <knotter@example.com>");
+        assert_eq!(email.to.len(), 2);
+        assert_eq!(email.to[1], "two@example.com");
+        assert_eq!(email.subject_prefix, "Reminders");
+        assert_eq!(email.smtp_host, "smtp.example.com");
+        assert_eq!(email.smtp_port, Some(587));
+        assert_eq!(email.username.as_deref(), Some("user@example.com"));
+        assert_eq!(email.password_env.as_deref(), Some("KNOTTER_SMTP_PASSWORD"));
+        assert_eq!(email.tls, EmailTls::StartTls);
+        assert_eq!(email.timeout_seconds, Some(20));
+    }
+
+    #[test]
+    fn merge_config_rejects_email_backend_without_email_config() {
+        let parsed = ConfigFile {
+            due_soon_days: None,
+            default_cadence_days: None,
+            notifications: Some(NotificationsFile {
+                enabled: Some(true),
+                backend: Some(NotificationBackend::Email),
+                email: None,
+            }),
+            loops: None,
+            contacts: None,
+        };
+
+        let err = merge_config(parsed).unwrap_err();
+        assert!(err.to_string().contains("notifications.email"));
+    }
+
+    #[test]
+    fn merge_config_allows_email_backend_when_disabled_without_email_config() {
+        let parsed = ConfigFile {
+            due_soon_days: None,
+            default_cadence_days: None,
+            notifications: Some(NotificationsFile {
+                enabled: Some(false),
+                backend: Some(NotificationBackend::Email),
+                email: None,
+            }),
+            loops: None,
+            contacts: None,
+        };
+
+        let merged = merge_config(parsed).expect("merge");
+        assert!(!merged.notifications.enabled);
+        assert_eq!(merged.notifications.backend, NotificationBackend::Email);
+        assert!(merged.notifications.email.is_none());
+    }
+
+    #[test]
+    fn merge_config_rejects_email_missing_password_env() {
+        let parsed = ConfigFile {
+            due_soon_days: None,
+            default_cadence_days: None,
+            notifications: Some(NotificationsFile {
+                enabled: Some(true),
+                backend: Some(NotificationBackend::Email),
+                email: Some(NotificationsEmailFile {
+                    from: Some("knotter@example.com".to_string()),
+                    to: Some(vec!["one@example.com".to_string()]),
+                    subject_prefix: None,
+                    smtp_host: Some("smtp.example.com".to_string()),
+                    smtp_port: Some(587),
+                    username: Some("user@example.com".to_string()),
+                    password_env: None,
+                    tls: None,
+                    timeout_seconds: None,
+                }),
+            }),
+            loops: None,
+            contacts: None,
+        };
+
+        let err = merge_config(parsed).unwrap_err();
+        assert!(err.to_string().contains("username/password_env"));
+    }
+
+    #[test]
+    fn merge_config_rejects_invalid_email_addresses() {
+        let parsed = ConfigFile {
+            due_soon_days: None,
+            default_cadence_days: None,
+            notifications: Some(NotificationsFile {
+                enabled: Some(true),
+                backend: Some(NotificationBackend::Email),
+                email: Some(NotificationsEmailFile {
+                    from: Some("not-an-email".to_string()),
+                    to: Some(vec!["also-bad".to_string()]),
+                    subject_prefix: None,
+                    smtp_host: Some("smtp.example.com".to_string()),
+                    smtp_port: Some(587),
+                    username: None,
+                    password_env: None,
+                    tls: None,
+                    timeout_seconds: None,
+                }),
+            }),
+            loops: None,
+            contacts: None,
+        };
+
+        let err = merge_config(parsed).unwrap_err();
+        assert!(err.to_string().contains("notifications.email"));
     }
 
     #[test]

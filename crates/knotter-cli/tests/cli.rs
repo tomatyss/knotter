@@ -42,6 +42,23 @@ fn run_cmd_output(db_path: &Path, args: &[&str]) -> std::process::Output {
         .expect("run command")
 }
 
+fn run_cmd_output_with_config(
+    db_path: &Path,
+    config_path: &Path,
+    args: &[&str],
+) -> std::process::Output {
+    cargo_bin_cmd!("knotter")
+        .args([
+            "--db-path",
+            db_path.to_str().expect("db path"),
+            "--config",
+            config_path.to_str().expect("config path"),
+        ])
+        .args(args)
+        .output()
+        .expect("run command")
+}
+
 fn run_cmd_json(db_path: &Path, args: &[&str]) -> Value {
     let output = cargo_bin_cmd!("knotter")
         .args(["--db-path", db_path.to_str().expect("db path"), "--json"])
@@ -334,6 +351,56 @@ fn cli_remind_notify_json_fails_without_desktop_feature() {
 
     let output = run_cmd_output(
         &db_path,
+        &[
+            "--json",
+            "remind",
+            "--notify",
+            "--soon-days",
+            &MAX_SOON_DAYS.to_string(),
+        ],
+    );
+    assert!(!output.status.success());
+    let parsed: Value = serde_json::from_slice(&output.stdout).expect("parse json");
+    let soon = parsed["soon"].as_array().expect("soon array");
+    assert_eq!(soon.len(), 1);
+}
+
+#[test]
+fn cli_remind_email_backend_fails_without_feature() {
+    if cfg!(feature = "email-notify") {
+        return;
+    }
+
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let config_path = temp.path().join("config.toml");
+
+    std::fs::write(
+        &config_path,
+        "due_soon_days = 3650\n[notifications]\nenabled = true\nbackend = \"email\"\n\n[notifications.email]\nfrom = \"Knotter <knotter@example.com>\"\nto = [\"ada@example.com\"]\nsmtp_host = \"smtp.example.com\"\nsmtp_port = 587\nusername = \"user@example.com\"\npassword_env = \"KNOTTER_SMTP_PASSWORD\"\ntls = \"start-tls\"\ntimeout_seconds = 20\n",
+    )
+    .expect("write config");
+    restrict_config_permissions(&config_path);
+
+    run_cmd_with_config(
+        &db_path,
+        &config_path,
+        &["add-contact", "--name", "Ada Lovelace"],
+    );
+
+    let list = run_cmd_json_with_config(&db_path, &config_path, &["list"]);
+    let items = list.as_array().expect("array");
+    let id = items[0]["id"].as_str().expect("id").to_string();
+
+    run_cmd_with_config(
+        &db_path,
+        &config_path,
+        &["schedule", &id, "--at", "2030-01-02"],
+    );
+
+    let output = run_cmd_output_with_config(
+        &db_path,
+        &config_path,
         &[
             "--json",
             "remind",

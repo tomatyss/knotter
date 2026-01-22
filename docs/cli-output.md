@@ -46,6 +46,8 @@ setting (CLI flag or config default). In JSON mode, notifications only run when
 `--notify` is provided explicitly. When `notifications.backend = "stdout"`,
 `--notify --json` returns a non-zero exit code because stdout notifications
 cannot run without corrupting JSON output.
+When `notifications.backend = "email"`, `--notify` sends email and failures
+return a non-zero exit code.
 
 Reminder items include the `archived_at` field from `ContactListItemDto`, but it
 will always be null because archived contacts are excluded from reminders.

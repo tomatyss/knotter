@@ -139,6 +139,9 @@ Use your system scheduler to run reminders (cron/systemd examples in `docs/sched
 /path/to/knotter remind --notify
 ```
 
+Email notifications require building with the `email-notify` feature and configuring
+SMTP settings (see below).
+
 ## Configuration
 
 knotter reads an optional TOML config file from:
@@ -156,7 +159,18 @@ default_cadence_days = 30
 
 [notifications]
 enabled = false
-backend = "stdout" # or "desktop"
+backend = "stdout" # or "desktop" or "email"
+
+[notifications.email]
+from = "Knotter <knotter@example.com>"
+to = ["you@example.com"]
+subject_prefix = "knotter reminders"
+smtp_host = "smtp.example.com"
+smtp_port = 587
+username = "user@example.com"
+password_env = "KNOTTER_SMTP_PASSWORD"
+tls = "start-tls" # start-tls | tls | none
+timeout_seconds = 20
 
 [loops]
 # Optional default when no tag matches (e.g., ~6 months)
