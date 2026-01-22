@@ -10,7 +10,9 @@ use std::str::FromStr;
 use tempfile::TempDir;
 
 fn run_cmd(db_path: &Path, args: &[&str]) -> String {
+    let config_dir = TempDir::new().expect("temp config dir");
     let output = cargo_bin_cmd!("knotter")
+        .env("XDG_CONFIG_HOME", config_dir.path())
         .args(["--db-path", db_path.to_str().expect("db path")])
         .args(args)
         .output()
@@ -20,7 +22,9 @@ fn run_cmd(db_path: &Path, args: &[&str]) -> String {
 }
 
 fn run_cmd_with_config(db_path: &Path, config_path: &Path, args: &[&str]) -> String {
+    let config_dir = TempDir::new().expect("temp config dir");
     let output = cargo_bin_cmd!("knotter")
+        .env("XDG_CONFIG_HOME", config_dir.path())
         .args([
             "--db-path",
             db_path.to_str().expect("db path"),
@@ -35,7 +39,9 @@ fn run_cmd_with_config(db_path: &Path, config_path: &Path, args: &[&str]) -> Str
 }
 
 fn run_cmd_output(db_path: &Path, args: &[&str]) -> std::process::Output {
+    let config_dir = TempDir::new().expect("temp config dir");
     cargo_bin_cmd!("knotter")
+        .env("XDG_CONFIG_HOME", config_dir.path())
         .args(["--db-path", db_path.to_str().expect("db path")])
         .args(args)
         .output()
@@ -47,7 +53,9 @@ fn run_cmd_output_with_config(
     config_path: &Path,
     args: &[&str],
 ) -> std::process::Output {
+    let config_dir = TempDir::new().expect("temp config dir");
     cargo_bin_cmd!("knotter")
+        .env("XDG_CONFIG_HOME", config_dir.path())
         .args([
             "--db-path",
             db_path.to_str().expect("db path"),
@@ -60,7 +68,9 @@ fn run_cmd_output_with_config(
 }
 
 fn run_cmd_json(db_path: &Path, args: &[&str]) -> Value {
+    let config_dir = TempDir::new().expect("temp config dir");
     let output = cargo_bin_cmd!("knotter")
+        .env("XDG_CONFIG_HOME", config_dir.path())
         .args(["--db-path", db_path.to_str().expect("db path"), "--json"])
         .args(args)
         .output()
@@ -70,7 +80,9 @@ fn run_cmd_json(db_path: &Path, args: &[&str]) -> Value {
 }
 
 fn run_cmd_json_with_config(db_path: &Path, config_path: &Path, args: &[&str]) -> Value {
+    let config_dir = TempDir::new().expect("temp config dir");
     let output = cargo_bin_cmd!("knotter")
+        .env("XDG_CONFIG_HOME", config_dir.path())
         .args([
             "--db-path",
             db_path.to_str().expect("db path"),
