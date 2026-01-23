@@ -225,10 +225,16 @@ This logic lives in core so both CLI and TUI behave identically.
 
 #### Cadence helper
 If a contact has `cadence_days`:
-- after a “touch” action, new `next_touchpoint_at = now + cadence_days`
+- after a “touch” action (or interaction with rescheduling enabled), set
+  `next_touchpoint_at = max(now, occurred_at) + cadence_days` (never in the past)
 
 Optional rule (MVP decision):
-- If `next_touchpoint_at` already exists and is later than `now`, only reschedule if user explicitly requests.
+- If `next_touchpoint_at` already exists and is later than `now`, only reschedule if user
+  explicitly requests (e.g., via CLI flags or `interactions.auto_reschedule`).
+
+Scheduling guard:
+- User-provided `next_touchpoint_at` inputs must be `now` or later.
+- Date-only inputs are interpreted as end-of-day local time (so "today" remains scheduled).
 
 ---
 
@@ -694,6 +700,7 @@ Config keys (MVP):
 * `notifications.email.subject_prefix = "knotter reminders"` (optional)
 * `notifications.email.tls = "start-tls" | "tls" | "none"`
 * `notifications.email.timeout_seconds = 20` (optional)
+* `interactions.auto_reschedule = true/false` (auto-reschedule on interaction add)
 * `loops.default_cadence_days = <int>` (optional, fallback cadence when no tag matches)
 * `loops.strategy = "shortest" | "priority"` (how to resolve multiple tag matches)
 * `loops.schedule_missing = true/false` (schedule when no `next_touchpoint_at`)

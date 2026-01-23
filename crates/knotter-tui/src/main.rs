@@ -44,7 +44,11 @@ fn main() -> Result<()> {
     store.migrate()?;
 
     let soon_days = validate_soon_days(args.soon_days.unwrap_or(app_config.due_soon_days))?;
-    let mut app = App::new(soon_days, app_config.default_cadence_days);
+    let mut app = App::new(
+        soon_days,
+        app_config.default_cadence_days,
+        app_config.interactions.auto_reschedule,
+    );
 
     let mut terminal = TerminalGuard::new()?;
     run_app(&mut terminal, &store, &mut app)

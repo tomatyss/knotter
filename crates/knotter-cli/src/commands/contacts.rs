@@ -2,7 +2,7 @@ use crate::commands::{print_json, Context, DEFAULT_INTERACTION_LIMIT};
 use crate::error::{invalid_input, not_found};
 use crate::util::{
     due_state_label, format_interaction_kind, format_timestamp_date, format_timestamp_datetime,
-    local_offset, now_utc, parse_contact_id, parse_local_timestamp,
+    local_offset, now_utc, parse_contact_id, parse_local_timestamp_with_precision,
 };
 use anyhow::Result;
 use clap::{ArgAction, Args};
@@ -11,7 +11,7 @@ use knotter_core::domain::TagName;
 use knotter_core::dto::{ContactDetailDto, ContactListItemDto, InteractionDto};
 use knotter_core::filter::parse_filter;
 use knotter_core::rules::compute_due_state;
-use knotter_core::rules::schedule_next;
+use knotter_core::rules::{ensure_future_timestamp_with_precision, schedule_next};
 use knotter_store::query::ContactQuery;
 use knotter_store::repo::{ContactNew, ContactUpdate};
 
@@ -87,7 +87,12 @@ pub struct UnarchiveArgs {
 pub fn add_contact(ctx: &Context<'_>, args: AddContactArgs) -> Result<()> {
     let now = now_utc();
     let next_touchpoint_at = match args.next_touchpoint_at {
-        Some(value) => Some(parse_local_timestamp(&value)?),
+        Some(value) => {
+            let (timestamp, precision) = parse_local_timestamp_with_precision(&value)?;
+            Some(ensure_future_timestamp_with_precision(
+                now, timestamp, precision,
+            )?)
+        }
         None => None,
     };
     let tags = parse_tags(&args.tag)?;
@@ -160,7 +165,8 @@ pub fn edit_contact(ctx: &Context<'_>, args: EditContactArgs) -> Result<()> {
         update.cadence_days = Some(Some(cadence));
     }
     if let Some(value) = args.next_touchpoint_at {
-        let parsed = parse_local_timestamp(&value)?;
+        let (timestamp, precision) = parse_local_timestamp_with_precision(&value)?;
+        let parsed = ensure_future_timestamp_with_precision(now, timestamp, precision)?;
         update.next_touchpoint_at = Some(Some(parsed));
     }
 

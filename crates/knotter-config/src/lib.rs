@@ -19,6 +19,7 @@ pub struct AppConfig {
     pub due_soon_days: i64,
     pub default_cadence_days: Option<i32>,
     pub notifications: NotificationsConfig,
+    pub interactions: InteractionsConfig,
     pub loops: LoopConfig,
     pub contacts: ContactsConfig,
 }
@@ -28,6 +29,11 @@ pub struct NotificationsConfig {
     pub enabled: bool,
     pub backend: NotificationBackend,
     pub email: Option<NotificationsEmailConfig>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct InteractionsConfig {
+    pub auto_reschedule: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -137,6 +143,7 @@ impl Default for AppConfig {
                 backend: NotificationBackend::Desktop,
                 email: None,
             },
+            interactions: InteractionsConfig::default(),
             loops: LoopConfig::default(),
             contacts: ContactsConfig::default(),
         }
@@ -195,6 +202,7 @@ struct ConfigFile {
     due_soon_days: Option<i64>,
     default_cadence_days: Option<i32>,
     notifications: Option<NotificationsFile>,
+    interactions: Option<InteractionsFile>,
     loops: Option<LoopConfigFile>,
     contacts: Option<ContactsFile>,
 }
@@ -219,6 +227,12 @@ struct NotificationsEmailFile {
     password_env: Option<String>,
     tls: Option<EmailTls>,
     timeout_seconds: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InteractionsFile {
+    auto_reschedule: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -347,6 +361,12 @@ fn merge_config(parsed: ConfigFile) -> Result<AppConfig> {
         }
         if let Some(email) = notifications.email {
             config.notifications.email = Some(merge_notifications_email(email)?);
+        }
+    }
+
+    if let Some(interactions) = parsed.interactions {
+        if let Some(auto_reschedule) = interactions.auto_reschedule {
+            config.interactions.auto_reschedule = auto_reschedule;
         }
     }
 
@@ -658,6 +678,7 @@ mod tests {
                 backend: Some(NotificationBackend::Desktop),
                 email: None,
             }),
+            interactions: None,
             loops: None,
             contacts: None,
         };
@@ -691,6 +712,7 @@ mod tests {
                     timeout_seconds: Some(20),
                 }),
             }),
+            interactions: None,
             loops: None,
             contacts: None,
         };
@@ -720,6 +742,7 @@ mod tests {
                 backend: Some(NotificationBackend::Email),
                 email: None,
             }),
+            interactions: None,
             loops: None,
             contacts: None,
         };
@@ -738,6 +761,7 @@ mod tests {
                 backend: Some(NotificationBackend::Email),
                 email: None,
             }),
+            interactions: None,
             loops: None,
             contacts: None,
         };
@@ -768,6 +792,7 @@ mod tests {
                     timeout_seconds: None,
                 }),
             }),
+            interactions: None,
             loops: None,
             contacts: None,
         };
@@ -796,6 +821,7 @@ mod tests {
                     timeout_seconds: None,
                 }),
             }),
+            interactions: None,
             loops: None,
             contacts: None,
         };
@@ -810,6 +836,7 @@ mod tests {
             due_soon_days: None,
             default_cadence_days: None,
             notifications: None,
+            interactions: None,
             loops: None,
             contacts: Some(ContactsFile {
                 sources: Some(vec![
@@ -855,6 +882,7 @@ mod tests {
             due_soon_days: None,
             default_cadence_days: None,
             notifications: None,
+            interactions: None,
             loops: None,
             contacts: Some(ContactsFile {
                 sources: Some(vec![
@@ -882,6 +910,7 @@ mod tests {
             due_soon_days: None,
             default_cadence_days: None,
             notifications: None,
+            interactions: None,
             loops: None,
             contacts: Some(ContactsFile {
                 sources: Some(vec![ContactSourceFile::Carddav {
@@ -904,6 +933,7 @@ mod tests {
             due_soon_days: None,
             default_cadence_days: None,
             notifications: None,
+            interactions: None,
             loops: None,
             contacts: Some(ContactsFile {
                 sources: Some(vec![ContactSourceFile::Carddav {
@@ -935,6 +965,7 @@ mod tests {
             due_soon_days: None,
             default_cadence_days: None,
             notifications: None,
+            interactions: None,
             loops: Some(LoopConfigFile {
                 default_cadence_days: Some(180),
                 strategy: Some(LoopStrategy::Priority),
@@ -977,6 +1008,7 @@ mod tests {
             due_soon_days: None,
             default_cadence_days: None,
             notifications: None,
+            interactions: None,
             loops: Some(LoopConfigFile {
                 default_cadence_days: None,
                 strategy: None,
@@ -1010,6 +1042,7 @@ mod tests {
             due_soon_days: None,
             default_cadence_days: None,
             notifications: None,
+            interactions: None,
             loops: Some(LoopConfigFile {
                 default_cadence_days: None,
                 strategy: None,
@@ -1036,6 +1069,7 @@ mod tests {
             due_soon_days: None,
             default_cadence_days: None,
             notifications: None,
+            interactions: None,
             loops: None,
             contacts: Some(ContactsFile {
                 sources: Some(vec![ContactSourceFile::Carddav {
@@ -1058,6 +1092,7 @@ mod tests {
             due_soon_days: None,
             default_cadence_days: None,
             notifications: None,
+            interactions: None,
             loops: None,
             contacts: Some(ContactsFile {
                 sources: Some(vec![ContactSourceFile::Macos {

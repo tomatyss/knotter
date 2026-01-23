@@ -193,6 +193,8 @@ All modals share consistent behavior.
   Move focus to next field/control.
 - `Shift+Tab`  
   Move focus to previous field/control.
+- `Ctrl+N`  
+  Set date/time fields to “now” in contact/schedule modals.
 - `Esc`  
   Cancel/close (confirm if there are unsaved changes).
 - `Enter`

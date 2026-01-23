@@ -75,6 +75,10 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
         Mode::List => "j/k move  enter detail  / filter  a add  e edit  n note  t tags  s schedule  x clear  A archive  v archived  ? help",
         Mode::Detail(_) => "esc back  j/k scroll  e edit  n note  t tags  s schedule  x clear  A archive  ? help",
         Mode::FilterEditing => "enter apply  esc cancel",
+        Mode::ModalAddContact(_) | Mode::ModalEditContact(_) => {
+            "tab next  shift+tab prev  enter select  ctrl+n set now  esc cancel"
+        }
+        Mode::ModalSchedule(_) => "tab next  shift+tab prev  enter select  ctrl+n set now  esc cancel",
         _ => "tab next  shift+tab prev  enter select  esc cancel",
     };
 
@@ -292,6 +296,10 @@ fn render_contact_form(frame: &mut Frame<'_>, area: Rect, title: &str, form: &Co
             &form.next_touchpoint_at,
             form.focus == 6,
         ),
+        Line::from(Span::styled(
+            "Must be now or later. Ctrl+N sets to now.",
+            Style::default().fg(Color::DarkGray),
+        )),
         Line::from(""),
     ];
 
@@ -444,10 +452,15 @@ fn render_schedule_form(frame: &mut Frame<'_>, area: Rect, form: &ScheduleForm) 
     let block = Block::default()
         .borders(Borders::ALL)
         .title("Schedule Touchpoint");
-    let mut lines = Vec::new();
-    lines.push(field_line("Date (YYYY-MM-DD)", &form.date, form.focus == 0));
-    lines.push(field_line("Time (HH:MM)", &form.time, form.focus == 1));
-    lines.push(Line::from(""));
+    let mut lines = vec![
+        field_line("Date (YYYY-MM-DD)", &form.date, form.focus == 0),
+        field_line("Time (HH:MM)", &form.time, form.focus == 1),
+        Line::from(Span::styled(
+            "Must be now or later. Ctrl+N sets to now.",
+            Style::default().fg(Color::DarkGray),
+        )),
+        Line::from(""),
+    ];
 
     let save_style = if form.is_save_focus() {
         Style::default().fg(Color::Black).bg(Color::LightGreen)
@@ -488,7 +501,7 @@ fn render_help(frame: &mut Frame<'_>, area: Rect) {
         Line::from("List: j/k move, enter detail, / filter, a add, e edit, n note, t tags, s schedule, x clear, A archive, v archived"),
         Line::from("Filter: enter apply, esc cancel"),
         Line::from("Detail: esc back, j/k scroll, e edit, n note, t tags, s schedule, x clear, A archive"),
-        Line::from("Modals: tab/shift+tab move, enter activate, esc cancel"),
+        Line::from("Modals: tab/shift+tab move, enter activate, esc cancel, Ctrl+N set now (contact/schedule)"),
         Line::from(""),
         Line::from("Filter syntax: #tag, due:overdue|today|soon|any|none, archived:true|false, text matches name/email/phone/handle"),
     ];

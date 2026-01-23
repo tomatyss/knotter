@@ -1,7 +1,10 @@
 use crate::commands::{print_json, Context};
-use crate::util::{format_timestamp_datetime, now_utc, parse_contact_id, parse_local_date_time};
+use crate::util::{
+    format_timestamp_datetime, now_utc, parse_contact_id, parse_local_date_time_with_precision,
+};
 use anyhow::Result;
 use clap::Args;
+use knotter_core::rules::ensure_future_timestamp_with_precision;
 use knotter_store::repo::ContactUpdate;
 
 #[derive(Debug, Args)]
@@ -20,14 +23,17 @@ pub struct ClearScheduleArgs {
 
 pub fn schedule_contact(ctx: &Context<'_>, args: ScheduleArgs) -> Result<()> {
     let contact_id = parse_contact_id(&args.id)?;
-    let timestamp = parse_local_date_time(&args.date, args.time.as_deref())?;
+    let now = now_utc();
+    let (timestamp, precision) =
+        parse_local_date_time_with_precision(&args.date, args.time.as_deref())?;
+    let timestamp = ensure_future_timestamp_with_precision(now, timestamp, precision)?;
 
     let update = ContactUpdate {
         next_touchpoint_at: Some(Some(timestamp)),
         ..Default::default()
     };
 
-    let contact = ctx.store.contacts().update(now_utc(), contact_id, update)?;
+    let contact = ctx.store.contacts().update(now, contact_id, update)?;
 
     if ctx.json {
         print_json(&contact)?;

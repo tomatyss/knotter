@@ -4,12 +4,15 @@ use chrono::{
 };
 use thiserror::Error;
 
-const DATETIME_FORMATS: [&str; 4] = [
-    "%Y-%m-%d %H:%M",
-    "%Y-%m-%dT%H:%M",
-    "%Y-%m-%d %H:%M:%S",
-    "%Y-%m-%dT%H:%M:%S",
-];
+const DATETIME_FORMATS_MINUTES: [&str; 2] = ["%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M"];
+const DATETIME_FORMATS_SECONDS: [&str; 2] = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimePrecision {
+    Date,
+    Minute,
+    Second,
+}
 
 #[derive(Debug, Error)]
 pub enum TimeParseError {
@@ -17,7 +20,9 @@ pub enum TimeParseError {
     Empty,
     #[error("invalid date")]
     InvalidDate,
-    #[error("invalid datetime format: expected YYYY-MM-DD or YYYY-MM-DD HH:MM")]
+    #[error(
+        "invalid datetime format: expected YYYY-MM-DD, YYYY-MM-DD HH:MM, or YYYY-MM-DD HH:MM:SS (T separator allowed)"
+    )]
     InvalidDateTime,
     #[error("invalid date format: expected YYYY-MM-DD")]
     InvalidDateFormat,
@@ -36,6 +41,12 @@ pub fn local_offset() -> FixedOffset {
 }
 
 pub fn parse_local_timestamp(input: &str) -> Result<i64, TimeParseError> {
+    parse_local_timestamp_with_precision(input).map(|(timestamp, _)| timestamp)
+}
+
+pub fn parse_local_timestamp_with_precision(
+    input: &str,
+) -> Result<(i64, TimePrecision), TimeParseError> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return Err(TimeParseError::Empty);
@@ -45,12 +56,18 @@ pub fn parse_local_timestamp(input: &str) -> Result<i64, TimeParseError> {
         let naive = date
             .and_hms_opt(0, 0, 0)
             .ok_or(TimeParseError::InvalidDate)?;
-        return local_to_utc_timestamp(naive);
+        return Ok((local_to_utc_timestamp(naive)?, TimePrecision::Date));
     }
 
-    for fmt in DATETIME_FORMATS {
+    for fmt in DATETIME_FORMATS_SECONDS {
         if let Ok(dt) = NaiveDateTime::parse_from_str(trimmed, fmt) {
-            return local_to_utc_timestamp(dt);
+            return Ok((local_to_utc_timestamp(dt)?, TimePrecision::Second));
+        }
+    }
+
+    for fmt in DATETIME_FORMATS_MINUTES {
+        if let Ok(dt) = NaiveDateTime::parse_from_str(trimmed, fmt) {
+            return Ok((local_to_utc_timestamp(dt)?, TimePrecision::Minute));
         }
     }
 
@@ -58,16 +75,29 @@ pub fn parse_local_timestamp(input: &str) -> Result<i64, TimeParseError> {
 }
 
 pub fn parse_local_date_time(date: &str, time: Option<&str>) -> Result<i64, TimeParseError> {
+    parse_local_date_time_with_precision(date, time).map(|(timestamp, _)| timestamp)
+}
+
+pub fn parse_local_date_time_with_precision(
+    date: &str,
+    time: Option<&str>,
+) -> Result<(i64, TimePrecision), TimeParseError> {
     let date = NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d")
         .map_err(|_| TimeParseError::InvalidDateFormat)?;
-    let time = match time {
-        Some(raw) => NaiveTime::parse_from_str(raw.trim(), "%H:%M")
-            .map_err(|_| TimeParseError::InvalidTimeFormat)?,
-        None => NaiveTime::from_hms_opt(0, 0, 0).ok_or(TimeParseError::InvalidDate)?,
+    let (time, precision) = match time {
+        Some(raw) => (
+            NaiveTime::parse_from_str(raw.trim(), "%H:%M")
+                .map_err(|_| TimeParseError::InvalidTimeFormat)?,
+            TimePrecision::Minute,
+        ),
+        None => (
+            NaiveTime::from_hms_opt(0, 0, 0).ok_or(TimeParseError::InvalidDate)?,
+            TimePrecision::Date,
+        ),
     };
 
     let naive = date.and_time(time);
-    local_to_utc_timestamp(naive)
+    Ok((local_to_utc_timestamp(naive)?, precision))
 }
 
 pub fn format_timestamp_date(ts: i64) -> String {
@@ -82,6 +112,13 @@ pub fn format_timestamp_datetime(ts: i64) -> String {
         .unwrap_or_else(|| DateTime::<Utc>::from_timestamp(0, 0).unwrap())
         .with_timezone(&Local);
     dt.format("%Y-%m-%d %H:%M").to_string()
+}
+
+pub fn format_timestamp_time(ts: i64) -> String {
+    let dt = DateTime::<Utc>::from_timestamp(ts, 0)
+        .unwrap_or_else(|| DateTime::<Utc>::from_timestamp(0, 0).unwrap())
+        .with_timezone(&Local);
+    dt.format("%H:%M").to_string()
 }
 
 pub fn format_timestamp_date_or_datetime(ts: i64) -> String {
@@ -107,7 +144,8 @@ fn local_to_utc_timestamp(naive: NaiveDateTime) -> Result<i64, TimeParseError> {
 mod tests {
     use super::{
         format_timestamp_date, format_timestamp_date_or_datetime, format_timestamp_datetime,
-        parse_local_date_time, parse_local_timestamp, TimeParseError,
+        format_timestamp_time, parse_local_date_time, parse_local_date_time_with_precision,
+        parse_local_timestamp, parse_local_timestamp_with_precision, TimeParseError, TimePrecision,
     };
     use chrono::{Local, TimeZone, Utc};
 
@@ -145,6 +183,31 @@ mod tests {
     }
 
     #[test]
+    fn parse_local_timestamp_infers_precision() {
+        let (date_ts, date_precision) = parse_local_timestamp_with_precision("2030-01-15").unwrap();
+        let (minute_ts, minute_precision) =
+            parse_local_timestamp_with_precision("2030-01-15 13:45").unwrap();
+        let (second_ts, second_precision) =
+            parse_local_timestamp_with_precision("2030-01-15 13:45:30").unwrap();
+
+        assert_eq!(date_precision, TimePrecision::Date);
+        assert_eq!(minute_precision, TimePrecision::Minute);
+        assert_eq!(second_precision, TimePrecision::Second);
+        assert!(date_ts <= minute_ts);
+        assert!(minute_ts <= second_ts);
+    }
+
+    #[test]
+    fn parse_local_date_time_infers_precision() {
+        let (_ts, precision) = parse_local_date_time_with_precision("2030-01-15", None).unwrap();
+        assert_eq!(precision, TimePrecision::Date);
+
+        let (_ts, precision) =
+            parse_local_date_time_with_precision("2030-01-15", Some("13:45")).unwrap();
+        assert_eq!(precision, TimePrecision::Minute);
+    }
+
+    #[test]
     fn format_helpers_match_local_time() {
         let local = Local.with_ymd_and_hms(2030, 1, 15, 13, 45, 0).unwrap();
         let ts = local.with_timezone(&Utc).timestamp();
@@ -156,6 +219,7 @@ mod tests {
             format_timestamp_datetime(ts),
             local.format("%Y-%m-%d %H:%M").to_string()
         );
+        assert_eq!(format_timestamp_time(ts), local.format("%H:%M").to_string());
         assert_eq!(
             format_timestamp_date_or_datetime(ts),
             local.format("%Y-%m-%d %H:%M").to_string()

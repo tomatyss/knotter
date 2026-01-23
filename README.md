@@ -68,6 +68,18 @@ Add an interaction:
 knotter add-note <id> --kind call --note "Caught up after the conference"
 ```
 
+Record a touch and reschedule in one step:
+
+```
+knotter touch <id> --kind call --note "Caught up after the conference" --reschedule
+```
+
+Add an interaction and reschedule the next touchpoint:
+
+```
+knotter add-note <id> --kind call --note "Caught up after the conference" --reschedule
+```
+
 Archive or unarchive a contact:
 
 ```
@@ -171,6 +183,10 @@ username = "user@example.com"
 password_env = "KNOTTER_SMTP_PASSWORD"
 tls = "start-tls" # start-tls | tls | none
 timeout_seconds = 20
+
+[interactions]
+# Auto-reschedule after adding interactions (requires cadence_days on the contact)
+auto_reschedule = false
 
 [loops]
 # Optional default when no tag matches (e.g., ~6 months)

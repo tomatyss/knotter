@@ -54,6 +54,71 @@ impl<'a> InteractionsRepo<'a> {
         })
     }
 
+    pub fn add_with_reschedule(
+        &self,
+        now_utc: i64,
+        input: InteractionNew,
+        reschedule: bool,
+    ) -> Result<Interaction> {
+        if !reschedule {
+            return self.add(input);
+        }
+
+        let tx = self.conn.unchecked_transaction()?;
+        let contact_row: Option<(Option<i32>, Option<i64>)> = tx
+            .query_row(
+                "SELECT cadence_days, next_touchpoint_at FROM contacts WHERE id = ?1;",
+                [input.contact_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+
+        let (cadence_days, existing_next) = match contact_row {
+            Some(values) => values,
+            None => return Err(StoreError::NotFound(input.contact_id.to_string())),
+        };
+
+        let anchor = now_utc.max(input.occurred_at);
+        let next_touchpoint =
+            next_touchpoint_after_touch(anchor, cadence_days, reschedule, existing_next)?;
+
+        if next_touchpoint != existing_next {
+            tx.execute(
+                "UPDATE contacts SET next_touchpoint_at = ?2, updated_at = ?3 WHERE id = ?1;",
+                params![input.contact_id.to_string(), next_touchpoint, now_utc],
+            )?;
+        }
+
+        let id = InteractionId::new();
+        let kind = serialize_kind(&input.kind)?;
+
+        tx.execute(
+            "INSERT INTO interactions (id, contact_id, occurred_at, created_at, kind, note, follow_up_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7);",
+            params![
+                id.to_string(),
+                input.contact_id.to_string(),
+                input.occurred_at,
+                input.created_at,
+                kind,
+                input.note,
+                input.follow_up_at,
+            ],
+        )?;
+
+        tx.commit()?;
+
+        Ok(Interaction {
+            id,
+            contact_id: input.contact_id,
+            occurred_at: input.occurred_at,
+            created_at: input.created_at,
+            kind: input.kind,
+            note: input.note,
+            follow_up_at: input.follow_up_at,
+        })
+    }
+
     pub fn list_for_contact(
         &self,
         contact_id: ContactId,

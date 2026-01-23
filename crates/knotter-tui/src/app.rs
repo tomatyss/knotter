@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use knotter_core::domain::{ContactId, TagName};
 use knotter_core::filter::{parse_filter, ContactFilter};
+use knotter_core::rules::ensure_future_timestamp_with_precision;
 
 use crate::actions::Action;
 
@@ -37,6 +38,7 @@ pub struct App {
     pub error: Option<String>,
     pub soon_days: i64,
     pub default_cadence_days: Option<i32>,
+    pub auto_reschedule_interactions: bool,
     pub show_archived: bool,
     pub empty_hint: &'static str,
     actions: VecDeque<Action>,
@@ -44,7 +46,11 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(soon_days: i64, default_cadence_days: Option<i32>) -> Self {
+    pub fn new(
+        soon_days: i64,
+        default_cadence_days: Option<i32>,
+        auto_reschedule_interactions: bool,
+    ) -> Self {
         let mut app = Self {
             mode: Mode::List,
             show_help: false,
@@ -60,6 +66,7 @@ impl App {
             error: None,
             soon_days,
             default_cadence_days,
+            auto_reschedule_interactions,
             show_archived: false,
             empty_hint: LIST_EMPTY,
             actions: VecDeque::new(),
@@ -393,6 +400,13 @@ impl App {
             KeyCode::Esc => {
                 return Some(Mode::List);
             }
+            KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if form.focus == 6 {
+                    let now = knotter_core::time::now_utc();
+                    form.set_next_touchpoint_now(now);
+                    self.set_status("Next touchpoint set to now".to_string());
+                }
+            }
             KeyCode::Tab => form.focus_next(),
             KeyCode::BackTab => form.focus_prev(),
             KeyCode::Enter => {
@@ -495,6 +509,13 @@ impl App {
     fn handle_schedule_form_key(&mut self, form: &mut ScheduleForm, key: KeyEvent) -> Option<Mode> {
         match key.code {
             KeyCode::Esc => return Some(Mode::List),
+            KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if form.focus == 0 || form.focus == 1 {
+                    let now = knotter_core::time::now_utc();
+                    form.set_now(now);
+                    self.set_status("Schedule set to now".to_string());
+                }
+            }
             KeyCode::Tab => form.focus_next(),
             KeyCode::BackTab => form.focus_prev(),
             KeyCode::Enter => {
@@ -604,6 +625,8 @@ pub struct ContactForm {
     pub timezone: String,
     pub cadence_days: String,
     pub next_touchpoint_at: String,
+    pub original_next_touchpoint_at: Option<i64>,
+    pub original_next_touchpoint_display: String,
 }
 
 impl ContactForm {
@@ -622,10 +645,16 @@ impl ContactForm {
                 .map(|value| value.to_string())
                 .unwrap_or_default(),
             next_touchpoint_at: String::new(),
+            original_next_touchpoint_at: None,
+            original_next_touchpoint_display: String::new(),
         }
     }
 
     pub fn from_detail(detail: &knotter_core::dto::ContactDetailDto) -> Self {
+        let next_touchpoint_display = detail
+            .next_touchpoint_at
+            .map(knotter_core::time::format_timestamp_date_or_datetime)
+            .unwrap_or_default();
         Self {
             focus: 0,
             contact_id: Some(detail.id),
@@ -638,10 +667,9 @@ impl ContactForm {
                 .cadence_days
                 .map(|value| value.to_string())
                 .unwrap_or_default(),
-            next_touchpoint_at: detail
-                .next_touchpoint_at
-                .map(knotter_core::time::format_timestamp_date_or_datetime)
-                .unwrap_or_default(),
+            next_touchpoint_at: next_touchpoint_display.clone(),
+            original_next_touchpoint_at: detail.next_touchpoint_at,
+            original_next_touchpoint_display: next_touchpoint_display,
         }
     }
 
@@ -680,6 +708,10 @@ impl ContactForm {
         }
     }
 
+    pub fn set_next_touchpoint_now(&mut self, now_utc: i64) {
+        self.next_touchpoint_at = knotter_core::time::format_timestamp_datetime(now_utc);
+    }
+
     pub fn to_action(&self) -> Result<Action, String> {
         let name = self.name.trim();
         if name.is_empty() {
@@ -699,10 +731,24 @@ impl ContactForm {
 
         let next_touchpoint_at = if self.next_touchpoint_at.trim().is_empty() {
             None
+        } else if self.contact_id.is_some()
+            && self.original_next_touchpoint_display == self.next_touchpoint_at
+        {
+            self.original_next_touchpoint_at
         } else {
+            let (parsed, precision) =
+                knotter_core::time::parse_local_timestamp_with_precision(&self.next_touchpoint_at)
+                    .map_err(|err| err.to_string())?;
+            let now = knotter_core::time::now_utc();
             Some(
-                knotter_core::time::parse_local_timestamp(&self.next_touchpoint_at)
-                    .map_err(|err| err.to_string())?,
+                ensure_future_timestamp_with_precision(now, parsed, precision).map_err(|err| {
+                    match err {
+                        knotter_core::CoreError::TimestampInPast => {
+                            "next touchpoint must be now or later".to_string()
+                        }
+                        _ => err.to_string(),
+                    }
+                })?,
             )
         };
 
@@ -997,6 +1043,11 @@ impl ScheduleForm {
         }
     }
 
+    pub fn set_now(&mut self, now_utc: i64) {
+        self.date = knotter_core::time::format_timestamp_date(now_utc);
+        self.time = knotter_core::time::format_timestamp_time(now_utc);
+    }
+
     pub fn to_action(&self) -> Result<Action, String> {
         let date = self.date.trim();
         if date.is_empty() {
@@ -1007,8 +1058,19 @@ impl ScheduleForm {
         } else {
             Some(self.time.trim())
         };
+        let (timestamp, precision) =
+            knotter_core::time::parse_local_date_time_with_precision(date, time)
+                .map_err(|err| err.to_string())?;
+        let now = knotter_core::time::now_utc();
         let timestamp =
-            knotter_core::time::parse_local_date_time(date, time).map_err(|err| err.to_string())?;
+            ensure_future_timestamp_with_precision(now, timestamp, precision).map_err(|err| {
+                match err {
+                    knotter_core::CoreError::TimestampInPast => {
+                        "scheduled time must be now or later".to_string()
+                    }
+                    _ => err.to_string(),
+                }
+            })?;
         Ok(Action::ScheduleContact(self.contact_id, timestamp))
     }
 }

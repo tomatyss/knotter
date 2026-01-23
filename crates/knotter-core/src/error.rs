@@ -14,4 +14,6 @@ pub enum CoreError {
     InvalidInteractionKindLabel,
     #[error("invalid timestamp")]
     InvalidTimestamp,
+    #[error("timestamp must be now or later")]
+    TimestampInPast,
 }

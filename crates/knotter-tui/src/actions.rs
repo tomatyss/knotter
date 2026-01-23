@@ -102,7 +102,12 @@ pub fn execute_action(app: &mut App, store: &Store, action: Action) -> Result<()
         }
         Action::AddInteraction(input) => {
             let contact_id = input.contact_id;
-            let interaction = store.interactions().add(input)?;
+            let now = now_utc();
+            let interaction = if app.auto_reschedule_interactions {
+                store.interactions().add_with_reschedule(now, input, true)?
+            } else {
+                store.interactions().add(input)?
+            };
             app.set_status(format!(
                 "Added interaction ({})",
                 format_interaction_kind(&interaction.kind)

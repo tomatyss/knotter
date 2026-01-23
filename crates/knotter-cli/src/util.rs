@@ -3,8 +3,9 @@ use anyhow::Result;
 use knotter_core::domain::{ContactId, InteractionKind};
 use knotter_core::rules::DueState;
 pub use knotter_core::time::{
-    format_timestamp_date, format_timestamp_datetime, local_offset, now_utc, parse_local_date_time,
-    parse_local_timestamp,
+    format_timestamp_date, format_timestamp_datetime, local_offset, now_utc,
+    parse_local_date_time_with_precision, parse_local_timestamp,
+    parse_local_timestamp_with_precision,
 };
 use std::str::FromStr;
 

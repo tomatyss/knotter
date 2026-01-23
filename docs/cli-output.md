@@ -115,6 +115,14 @@ When `default_cadence_days` is set in config, `add-contact` uses it if
 `--cadence-days` is omitted. If loop rules are configured, they take precedence
 over the default cadence when `--cadence-days` is omitted.
 
+Note: `add-note` and `touch` only reschedule the next touchpoint when
+`--reschedule` is used or `interactions.auto_reschedule = true` is set in
+config.
+
+Note: `next_touchpoint_at` values provided via `add-contact`, `edit-contact`,
+or `schedule` must be `now` or later. Date-only inputs are treated as
+day-precision (today or later) and are saved as the end of that day.
+
 ### `knotter import vcf --json`
 
 Output: JSON object matching `ImportReport`:

@@ -1,7 +1,9 @@
 use assert_cmd::cargo::cargo_bin_cmd;
 use chrono::{Duration, Local};
 use knotter_core::domain::ContactId;
+use knotter_core::domain::InteractionKind;
 use knotter_core::rules::{schedule_next, MAX_SOON_DAYS};
+use knotter_core::time::parse_local_timestamp;
 use knotter_store::repo::ContactUpdate;
 use knotter_store::Store;
 use serde_json::Value;
@@ -217,6 +219,66 @@ fn cli_add_list_tag_schedule_flow() {
 
     let detail = run_cmd_json(&db_path, &["show", &id]);
     assert!(detail["next_touchpoint_at"].is_number());
+}
+
+#[test]
+fn cli_schedule_rejects_past_date() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+
+    run_cmd(&db_path, &["add-contact", "--name", "Ada Lovelace"]);
+    let list = run_cmd_json(&db_path, &["list"]);
+    let items = list.as_array().expect("array");
+    let id = items[0]["id"].as_str().expect("id").to_string();
+
+    let output = run_cmd_output(&db_path, &["schedule", &id, "--at", "2000-01-01"]);
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("timestamp must be now or later"));
+}
+
+#[test]
+fn cli_add_contact_rejects_past_next_touchpoint() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+
+    let output = run_cmd_output(
+        &db_path,
+        &[
+            "add-contact",
+            "--name",
+            "Ada Lovelace",
+            "--next-touchpoint-at",
+            "2000-01-01",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("timestamp must be now or later"));
+}
+
+#[test]
+fn cli_schedule_date_only_sets_end_of_day() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+
+    run_cmd(&db_path, &["add-contact", "--name", "Ada Lovelace"]);
+    let list = run_cmd_json(&db_path, &["list"]);
+    let items = list.as_array().expect("array");
+    let id = items[0]["id"].as_str().expect("id").to_string();
+
+    run_cmd(&db_path, &["schedule", &id, "--at", "2030-01-15"]);
+
+    let detail = run_cmd_json(&db_path, &["show", &id]);
+    let (timestamp, precision) =
+        knotter_core::time::parse_local_timestamp_with_precision("2030-01-15").expect("parse date");
+    let expected = knotter_core::rules::ensure_future_timestamp_with_precision(
+        knotter_core::time::now_utc(),
+        timestamp,
+        precision,
+    )
+    .expect("expected schedule");
+    assert_eq!(detail["next_touchpoint_at"], expected);
 }
 
 #[test]
@@ -567,6 +629,266 @@ fn cli_export_json_outputs_snapshot() {
     assert_eq!(interactions.len(), 1);
     assert_eq!(interactions[0]["kind"], "call");
     assert_eq!(interactions[0]["note"], "hello");
+}
+
+#[test]
+fn cli_add_note_reschedule_updates_next_touchpoint() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+
+    let created = run_cmd_json(
+        &db_path,
+        &[
+            "add-contact",
+            "--name",
+            "Ada Lovelace",
+            "--cadence-days",
+            "7",
+        ],
+    );
+    let id = created["id"].as_str().expect("id").to_string();
+
+    run_cmd(
+        &db_path,
+        &[
+            "add-note",
+            &id,
+            "--kind",
+            "call",
+            "--note",
+            "hello",
+            "--when",
+            "2030-01-02",
+            "--reschedule",
+        ],
+    );
+
+    let detail = run_cmd_json(&db_path, &["show", &id]);
+    let occurred_at = parse_local_timestamp("2030-01-02").expect("parse when");
+    let expected = schedule_next(occurred_at, 7).expect("schedule");
+    assert_eq!(detail["next_touchpoint_at"], expected);
+}
+
+#[test]
+fn cli_add_note_auto_reschedule_config_updates_next_touchpoint() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let config_path = temp.path().join("config.toml");
+
+    std::fs::write(
+        &config_path,
+        r#"
+[interactions]
+auto_reschedule = true
+"#,
+    )
+    .expect("write config");
+    restrict_config_permissions(&config_path);
+
+    let created = run_cmd_json_with_config(
+        &db_path,
+        &config_path,
+        &[
+            "add-contact",
+            "--name",
+            "Grace Hopper",
+            "--cadence-days",
+            "14",
+        ],
+    );
+    let id = created["id"].as_str().expect("id").to_string();
+
+    run_cmd_with_config(
+        &db_path,
+        &config_path,
+        &[
+            "add-note",
+            &id,
+            "--kind",
+            "email",
+            "--note",
+            "follow up",
+            "--when",
+            "2030-02-01",
+        ],
+    );
+
+    let detail = run_cmd_json_with_config(&db_path, &config_path, &["show", &id]);
+    let occurred_at = parse_local_timestamp("2030-02-01").expect("parse when");
+    let expected = schedule_next(occurred_at, 14).expect("schedule");
+    assert_eq!(detail["next_touchpoint_at"], expected);
+}
+
+#[test]
+fn cli_add_note_no_reschedule_overrides_config() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let config_path = temp.path().join("config.toml");
+
+    std::fs::write(
+        &config_path,
+        r#"
+[interactions]
+auto_reschedule = true
+"#,
+    )
+    .expect("write config");
+    restrict_config_permissions(&config_path);
+
+    let created = run_cmd_json_with_config(
+        &db_path,
+        &config_path,
+        &[
+            "add-contact",
+            "--name",
+            "Ada Lovelace",
+            "--cadence-days",
+            "7",
+        ],
+    );
+    let id = created["id"].as_str().expect("id").to_string();
+
+    run_cmd_with_config(
+        &db_path,
+        &config_path,
+        &[
+            "add-note",
+            &id,
+            "--kind",
+            "call",
+            "--note",
+            "hello",
+            "--when",
+            "2030-01-02",
+            "--no-reschedule",
+        ],
+    );
+
+    let detail = run_cmd_json_with_config(&db_path, &config_path, &["show", &id]);
+    assert!(detail["next_touchpoint_at"].is_null());
+}
+
+#[test]
+fn cli_touch_auto_reschedule_config_updates_next_touchpoint() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let config_path = temp.path().join("config.toml");
+
+    std::fs::write(
+        &config_path,
+        r#"
+[interactions]
+auto_reschedule = true
+"#,
+    )
+    .expect("write config");
+    restrict_config_permissions(&config_path);
+
+    let created = run_cmd_json_with_config(
+        &db_path,
+        &config_path,
+        &[
+            "add-contact",
+            "--name",
+            "Grace Hopper",
+            "--cadence-days",
+            "10",
+        ],
+    );
+    let id = created["id"].as_str().expect("id").to_string();
+
+    let before = knotter_core::time::now_utc();
+    run_cmd_with_config(&db_path, &config_path, &["touch", &id]);
+
+    let detail = run_cmd_json_with_config(&db_path, &config_path, &["show", &id]);
+    let next = detail["next_touchpoint_at"]
+        .as_i64()
+        .expect("next touchpoint");
+    let expected_min = schedule_next(before, 10).expect("schedule");
+    assert!(next >= expected_min);
+}
+
+#[test]
+fn cli_touch_no_reschedule_overrides_config() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let config_path = temp.path().join("config.toml");
+
+    std::fs::write(
+        &config_path,
+        r#"
+[interactions]
+auto_reschedule = true
+"#,
+    )
+    .expect("write config");
+    restrict_config_permissions(&config_path);
+
+    let created = run_cmd_json_with_config(
+        &db_path,
+        &config_path,
+        &[
+            "add-contact",
+            "--name",
+            "Ada Lovelace",
+            "--cadence-days",
+            "10",
+        ],
+    );
+    let id = created["id"].as_str().expect("id").to_string();
+
+    run_cmd_with_config(&db_path, &config_path, &["touch", &id, "--no-reschedule"]);
+
+    let detail = run_cmd_json_with_config(&db_path, &config_path, &["show", &id]);
+    assert!(detail["next_touchpoint_at"].is_null());
+}
+
+#[test]
+fn cli_touch_records_kind_and_reschedules() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+
+    let created = run_cmd_json(
+        &db_path,
+        &[
+            "add-contact",
+            "--name",
+            "Margaret Hamilton",
+            "--cadence-days",
+            "10",
+        ],
+    );
+    let id = created["id"].as_str().expect("id").to_string();
+
+    run_cmd(
+        &db_path,
+        &[
+            "touch",
+            &id,
+            "--kind",
+            "call",
+            "--note",
+            "sync",
+            "--when",
+            "2030-03-01",
+            "--reschedule",
+        ],
+    );
+
+    let detail = run_cmd_json(&db_path, &["show", &id]);
+    let occurred_at = parse_local_timestamp("2030-03-01").expect("parse when");
+    let expected = schedule_next(occurred_at, 10).expect("schedule");
+    assert_eq!(detail["next_touchpoint_at"], expected);
+
+    let store = Store::open(&db_path).expect("open store");
+    let contact_id = ContactId::from_str(&id).expect("contact id");
+    let interactions = store
+        .interactions()
+        .list_for_contact(contact_id, 10, 0)
+        .expect("list interactions");
+    assert_eq!(interactions.len(), 1);
+    assert!(matches!(interactions[0].kind, InteractionKind::Call));
+    assert_eq!(interactions[0].note, "sync");
 }
 
 #[test]

@@ -110,6 +110,55 @@ fn touch_contact_inserts_interaction_and_reschedules_when_requested() {
 }
 
 #[test]
+fn add_with_reschedule_updates_next_touchpoint() {
+    let store = Store::open_in_memory().expect("open in memory");
+    store.migrate().expect("migrate");
+
+    let now = 1_700_000_000;
+    let contact = store
+        .contacts()
+        .create(
+            now,
+            ContactNew {
+                display_name: "Grace Hopper".to_string(),
+                email: None,
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: Some(14),
+                archived_at: None,
+            },
+        )
+        .expect("create contact");
+
+    let occurred_at = now - 60;
+    store
+        .interactions()
+        .add_with_reschedule(
+            now,
+            InteractionNew {
+                contact_id: contact.id,
+                occurred_at,
+                created_at: now,
+                kind: InteractionKind::Call,
+                note: "catch-up".to_string(),
+                follow_up_at: None,
+            },
+            true,
+        )
+        .expect("add interaction with reschedule");
+
+    let after = store
+        .contacts()
+        .get(contact.id)
+        .expect("get contact")
+        .expect("contact exists");
+    let expected = schedule_next(now, 14).expect("schedule");
+    assert_eq!(after.next_touchpoint_at, Some(expected));
+}
+
+#[test]
 fn interactions_latest_occurred_at_for_contacts() {
     let store = Store::open_in_memory().expect("open in memory");
     store.migrate().expect("migrate");

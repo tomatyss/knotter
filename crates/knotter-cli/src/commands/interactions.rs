@@ -1,11 +1,11 @@
 use crate::commands::{print_json, Context};
-use crate::error::invalid_input;
+use crate::error::{invalid_input, not_found};
 use crate::util::{
     format_interaction_kind, now_utc, parse_contact_id, parse_interaction_kind,
     parse_local_timestamp,
 };
 use anyhow::Result;
-use clap::Args;
+use clap::{ArgAction, Args};
 use knotter_core::dto::InteractionDto;
 use knotter_store::repo::InteractionNew;
 use std::io::{self, Read};
@@ -21,21 +21,39 @@ pub struct AddNoteArgs {
     pub note: Option<String>,
     #[arg(long)]
     pub follow_up_at: Option<String>,
+    #[arg(long, action = ArgAction::SetTrue, conflicts_with = "no_reschedule")]
+    pub reschedule: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub no_reschedule: bool,
 }
 
 #[derive(Debug, Args)]
 pub struct TouchArgs {
     pub id: String,
+    #[arg(long, default_value = "other:touch")]
+    pub kind: String,
     #[arg(long)]
+    pub when: Option<String>,
+    #[arg(long)]
+    pub note: Option<String>,
+    #[arg(long)]
+    pub follow_up_at: Option<String>,
+    #[arg(long, action = ArgAction::SetTrue, conflicts_with = "no_reschedule")]
     pub reschedule: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub no_reschedule: bool,
 }
 
 pub fn add_note(ctx: &Context<'_>, args: AddNoteArgs) -> Result<()> {
     let contact_id = parse_contact_id(&args.id)?;
+    if ctx.store.contacts().get(contact_id)?.is_none() {
+        return Err(not_found("contact not found"));
+    }
+    let now = now_utc();
     let kind = parse_interaction_kind(&args.kind)?;
     let occurred_at = match args.when {
         Some(value) => parse_local_timestamp(&value)?,
-        None => now_utc(),
+        None => now,
     };
     let follow_up_at = match args.follow_up_at {
         Some(value) => Some(parse_local_timestamp(&value)?),
@@ -47,14 +65,29 @@ pub fn add_note(ctx: &Context<'_>, args: AddNoteArgs) -> Result<()> {
         None => read_note_from_stdin()?,
     };
 
-    let interaction = ctx.store.interactions().add(InteractionNew {
+    let reschedule = if args.reschedule {
+        true
+    } else if args.no_reschedule {
+        false
+    } else {
+        ctx.config.interactions.auto_reschedule
+    };
+
+    let input = InteractionNew {
         contact_id,
         occurred_at,
-        created_at: now_utc(),
+        created_at: now,
         kind,
         note,
         follow_up_at,
-    })?;
+    };
+    let interaction = if reschedule {
+        ctx.store
+            .interactions()
+            .add_with_reschedule(now, input, true)?
+    } else {
+        ctx.store.interactions().add(input)?
+    };
 
     if ctx.json {
         let dto = InteractionDto {
@@ -73,10 +106,42 @@ pub fn add_note(ctx: &Context<'_>, args: AddNoteArgs) -> Result<()> {
 
 pub fn touch_contact(ctx: &Context<'_>, args: TouchArgs) -> Result<()> {
     let contact_id = parse_contact_id(&args.id)?;
-    let interaction =
+    if ctx.store.contacts().get(contact_id)?.is_none() {
+        return Err(not_found("contact not found"));
+    }
+    let now = now_utc();
+    let kind = parse_interaction_kind(&args.kind)?;
+    let occurred_at = match args.when {
+        Some(value) => parse_local_timestamp(&value)?,
+        None => now,
+    };
+    let follow_up_at = match args.follow_up_at {
+        Some(value) => Some(parse_local_timestamp(&value)?),
+        None => None,
+    };
+    let note = args.note.unwrap_or_default();
+    let reschedule = if args.reschedule {
+        true
+    } else if args.no_reschedule {
+        false
+    } else {
+        ctx.config.interactions.auto_reschedule
+    };
+    let input = InteractionNew {
+        contact_id,
+        occurred_at,
+        created_at: now,
+        kind,
+        note,
+        follow_up_at,
+    };
+    let interaction = if reschedule {
         ctx.store
             .interactions()
-            .touch_contact(now_utc(), contact_id, args.reschedule)?;
+            .add_with_reschedule(now, input, true)?
+    } else {
+        ctx.store.interactions().add(input)?
+    };
 
     if ctx.json {
         let dto = InteractionDto {
