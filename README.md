@@ -2,7 +2,7 @@
 
 knotter is a terminal-first personal CRM and friendship tracker. It is an offline-first Rust app with a CLI and TUI, backed by a portable SQLite database, with vCard/iCalendar import/export.
 
-Status: CLI MVP and TUI MVP are available from this repo (no packaged release yet).
+Status: CLI MVP and TUI MVP are available from this repo. Tag-driven releases publish macOS/Linux tarballs and Linux .deb packages.
 
 ## Install (macOS via Homebrew)
 
@@ -19,8 +19,8 @@ If you already tapped, run `brew update` to pull the latest formula changes.
 
 ## Install (Linux / Debian / Ubuntu)
 
-Tag-driven releases publish `.deb` artifacts. See `docs/packaging.md` for local
-.deb builds and generic Unix install steps.
+Tag-driven releases publish `.deb` artifacts (x86_64). For generic Linux installs
+(including musl builds), see `docs/packaging.md`.
 
 ## Quickstart (dev)
 

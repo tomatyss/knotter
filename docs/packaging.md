@@ -1,8 +1,8 @@
 # Packaging
 
-This repo does not publish packages yet. These notes describe how to build
-installable artifacts locally for macOS Homebrew (single-repo tap), Debian/Ubuntu,
-and generic Unix systems.
+Releases publish macOS/Linux tarballs plus Linux .deb packages. These notes
+describe local builds for macOS Homebrew (single-repo tap), Debian/Ubuntu, and
+generic Unix systems.
 
 ## Homebrew (macOS, single-repo tap)
 
@@ -18,8 +18,8 @@ Formula files must point at a tagged release tarball and include a SHA256.
 ## Release tagging and assets
 
 Releases are tag-driven. Push a tag like `v0.1.0` to trigger the release
-workflow, which builds binaries, Linux .deb packages, and publishes checksums
-to GitHub Releases.
+workflow, which builds multi-arch Linux (gnu + musl) and macOS tarballs, Linux
+.deb packages for x86_64, and publishes checksums to GitHub Releases.
 
 ## Debian/Ubuntu (.deb)
 
@@ -53,4 +53,13 @@ Build release binaries and copy them into your PATH:
 cargo build --release -p knotter-cli -p knotter-tui
 install -m 755 target/release/knotter /usr/local/bin/knotter
 install -m 755 target/release/knotter-tui /usr/local/bin/knotter-tui
+```
+
+## Linux musl (static) local build
+
+For a static binary suitable for minimal distros or containers, use musl with a
+cross build tool like `cross`:
+
+```
+cross build --release -p knotter-cli -p knotter-tui --target x86_64-unknown-linux-musl
 ```

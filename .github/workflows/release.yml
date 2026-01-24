@@ -18,31 +18,65 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact_suffix: linux-x86_64
+            artifact_suffix: linux-gnu-x86_64
             deb: true
+            use_cross: true
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact_suffix: linux-gnu-aarch64
+            deb: false
+            use_cross: true
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            artifact_suffix: linux-musl-x86_64
+            deb: false
+            use_cross: true
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            artifact_suffix: linux-musl-aarch64
+            deb: false
+            use_cross: true
           - os: macos-14
             target: aarch64-apple-darwin
             artifact_suffix: macos-arm64
             deb: false
+            use_cross: false
           - os: macos-13
             target: x86_64-apple-darwin
             artifact_suffix: macos-x86_64
             deb: false
+            use_cross: false
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      - name: Install cross
+        if: matrix.use_cross == true
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
       - name: Build release binaries
-        run: cargo build --release -p knotter-cli -p knotter-tui
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.use_cross }}" = "true" ]; then
+            cross build --release -p knotter-cli -p knotter-tui --target "${{ matrix.target }}"
+          else
+            cargo build --release -p knotter-cli -p knotter-tui --target "${{ matrix.target }}"
+          fi
       - name: Install cargo-deb
         if: matrix.deb == true
-        run: cargo install cargo-deb
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb
       - name: Build deb packages
         if: matrix.deb == true
+        env:
+          CARGO_DEB_NO_STRIP: "1"
         run: |
-          cargo deb -p knotter-cli
-          cargo deb -p knotter-tui
+          cargo deb -p knotter-cli --no-build --target "${{ matrix.target }}"
+          cargo deb -p knotter-tui --no-build --target "${{ matrix.target }}"
       - name: Package artifacts
         run: |
           set -euo pipefail
@@ -50,13 +84,16 @@ jobs:
           SUFFIX="${{ matrix.artifact_suffix }}"
           STAGING="knotter-${VERSION}-${SUFFIX}"
           mkdir -p "dist/${STAGING}"
-          cp target/release/knotter "dist/${STAGING}/"
-          cp target/release/knotter-tui "dist/${STAGING}/"
+          cp "target/${{ matrix.target }}/release/knotter" "dist/${STAGING}/"
+          cp "target/${{ matrix.target }}/release/knotter-tui" "dist/${STAGING}/"
           cp README.md LICENSE "dist/${STAGING}/"
           tar -czf "dist/${STAGING}.tar.gz" -C dist "${STAGING}"
+          if [ "${SUFFIX}" = "linux-gnu-x86_64" ]; then
+            cp "dist/${STAGING}.tar.gz" "dist/knotter-${VERSION}-linux-x86_64.tar.gz"
+          fi
           rm -rf "dist/${STAGING}"
           if [ "${{ matrix.deb }}" = "true" ]; then
-            cp target/debian/*.deb dist/
+            cp "target/${{ matrix.target }}/debian/"*.deb dist/
           fi
       - uses: actions/upload-artifact@v4
         with:
