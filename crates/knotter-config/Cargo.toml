@@ -11,7 +11,7 @@ edition = "2021"
 serde = { version = "1", features = ["derive"] }
 thiserror = "1"
 toml = "0.8"
-dirs = "5"
+dirs = "6"
 knotter-core = { path = "../knotter-core" }
 lettre = { version = "0.11", default-features = false, features = ["builder"] }
 
