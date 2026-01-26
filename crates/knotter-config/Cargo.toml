@@ -1,6 +1,6 @@
 [package]
 name = "knotter-config"
-version = "0.1.3"
+version = "0.2.0"
 authors = ["Tomatyss <tomatyss@users.noreply.github.com>"]
 license = "Apache-2.0"
 description = "Configuration loader for knotter."
