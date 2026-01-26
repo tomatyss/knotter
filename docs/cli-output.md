@@ -56,7 +56,7 @@ will always be null because archived contacts are excluded from reminders.
 
 Output: JSON object matching `ContactDetailDto`:
 
-- `id`, `display_name`, `email`, `phone`, `handle`, `timezone`
+- `id`, `display_name`, `email` (primary), `emails` (array), `phone`, `handle`, `timezone`
 - `next_touchpoint_at`, `cadence_days`, `created_at`, `updated_at`, `archived_at`
 - `tags` (array of strings)
 - `recent_interactions` (array of `InteractionDto`)
@@ -135,6 +135,17 @@ Output: JSON object matching `ImportReport`:
 
 The same output shape is used for `import macos`, `import carddav`, and `import source`.
 
+### `knotter import email --json`
+
+Output: JSON object matching `EmailImportReport`:
+
+- `accounts`, `mailboxes`
+- `messages_seen`, `messages_imported`
+- `contacts_created`, `contacts_merged`, `contacts_matched`
+- `touches_recorded`
+- `warnings` (array of strings)
+- `dry_run` (boolean)
+
 ### `knotter export vcf/ics --json`
 
 Note: `--json` requires `--out` to avoid mixing JSON with exported data.
@@ -159,7 +170,7 @@ Snapshot JSON output:
   - `schema_version` (number)
   - `format_version` (number)
 - `contacts` array of objects:
-  - contact fields: `id`, `display_name`, `email`, `phone`, `handle`, `timezone`,
+  - contact fields: `id`, `display_name`, `email` (primary), `emails` (array), `phone`, `handle`, `timezone`,
     `next_touchpoint_at`, `cadence_days`, `created_at`, `updated_at`, `archived_at`
   - `tags` (array of strings)
   - `interactions` (array of objects):

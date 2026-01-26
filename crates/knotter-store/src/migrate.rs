@@ -1,7 +1,25 @@
 use crate::error::{Result, StoreError};
 use rusqlite::{Connection, OptionalExtension, Transaction};
 
-const MIGRATIONS: &[(&str, &str)] = &[("001_init.sql", include_str!("../migrations/001_init.sql"))];
+const MIGRATIONS: &[(&str, &str)] = &[
+    ("001_init.sql", include_str!("../migrations/001_init.sql")),
+    (
+        "002_email_sync.sql",
+        include_str!("../migrations/002_email_sync.sql"),
+    ),
+    (
+        "003_email_sync_uidvalidity.sql",
+        include_str!("../migrations/003_email_sync_uidvalidity.sql"),
+    ),
+    (
+        "004_email_message_dedupe_indexes.sql",
+        include_str!("../migrations/004_email_message_dedupe_indexes.sql"),
+    ),
+    (
+        "005_email_message_id_normalize.sql",
+        include_str!("../migrations/005_email_message_id_normalize.sql"),
+    ),
+];
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     let tx = conn.unchecked_transaction()?;

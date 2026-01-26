@@ -115,7 +115,7 @@ CREATE TABLE IF NOT EXISTS contacts (
   id TEXT PRIMARY KEY,                         -- UUID string
   display_name TEXT NOT NULL,
 
-  email TEXT,
+  email TEXT,                                  -- primary email (optional)
   phone TEXT,
   handle TEXT,
   timezone TEXT,                               -- IANA TZ string (optional)
@@ -179,3 +179,204 @@ CREATE TABLE IF NOT EXISTS interactions (
 
 CREATE INDEX IF NOT EXISTS idx_interactions_contact_occurred
   ON interactions(contact_id, occurred_at DESC);
+```
+
+## Migration: 002_email_sync.sql
+
+Adds multi-email support and email sync metadata.
+
+```sql
+-- 002_email_sync.sql
+
+-- Contact emails (normalized lowercase)
+CREATE TABLE IF NOT EXISTS contact_emails (
+  contact_id TEXT NOT NULL,
+  email TEXT NOT NULL,
+  is_primary INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  source TEXT,                              -- provenance (cli/tui/vcf/<account>/primary)
+
+  PRIMARY KEY (contact_id, email),
+  UNIQUE (email),
+  FOREIGN KEY(contact_id) REFERENCES contacts(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_emails_contact_id
+  ON contact_emails(contact_id);
+
+CREATE INDEX IF NOT EXISTS idx_contact_emails_email
+  ON contact_emails(email);
+
+-- Email sync state (per account/mailbox)
+CREATE TABLE IF NOT EXISTS email_sync_state (
+  account TEXT NOT NULL,
+  mailbox TEXT NOT NULL,
+  uidvalidity INTEGER,
+  last_uid INTEGER NOT NULL DEFAULT 0,
+  last_seen_at INTEGER,
+  PRIMARY KEY (account, mailbox)
+);
+
+-- Email messages (dedupe + touch history)
+CREATE TABLE IF NOT EXISTS email_messages (
+  account TEXT NOT NULL,
+  mailbox TEXT NOT NULL,
+  uidvalidity INTEGER NOT NULL DEFAULT 0,
+  uid INTEGER NOT NULL,
+  message_id TEXT,
+  contact_id TEXT NOT NULL,
+  occurred_at INTEGER NOT NULL,
+  direction TEXT NOT NULL,
+  subject TEXT,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (account, mailbox, uidvalidity, uid),
+  FOREIGN KEY(contact_id) REFERENCES contacts(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_messages_contact_occurred
+  ON email_messages(contact_id, occurred_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_email_messages_account_message_id
+  ON email_messages(account, message_id)
+  WHERE message_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_email_messages_account_mailbox_uidvalidity_uid_null_message_id
+  ON email_messages(account, mailbox, uidvalidity, uid)
+  WHERE message_id IS NULL;
+```
+
+## Migration: 003_email_sync_uidvalidity.sql
+
+Adds uidvalidity to the email message dedupe key and reconciles legacy duplicate emails.
+
+```sql
+-- 003_email_sync_uidvalidity.sql
+
+CREATE TABLE IF NOT EXISTS email_messages_new (
+  account TEXT NOT NULL,
+  mailbox TEXT NOT NULL,
+  uidvalidity INTEGER NOT NULL DEFAULT 0,
+  uid INTEGER NOT NULL,
+  message_id TEXT,
+  contact_id TEXT NOT NULL,
+  occurred_at INTEGER NOT NULL,
+  direction TEXT NOT NULL,
+  subject TEXT,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (account, mailbox, uidvalidity, uid),
+  FOREIGN KEY(contact_id) REFERENCES contacts(id) ON DELETE CASCADE
+);
+
+INSERT INTO email_messages_new
+  (account, mailbox, uidvalidity, uid, message_id, contact_id, occurred_at, direction, subject, created_at)
+SELECT account, mailbox, 0, uid, message_id, contact_id, occurred_at, direction, subject, created_at
+FROM email_messages;
+
+DROP TABLE email_messages;
+ALTER TABLE email_messages_new RENAME TO email_messages;
+
+CREATE INDEX IF NOT EXISTS idx_email_messages_contact_occurred
+  ON email_messages(contact_id, occurred_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_email_messages_message_id
+  ON email_messages(message_id);
+
+UPDATE contacts
+SET email = LOWER(TRIM(email))
+WHERE email IS NOT NULL;
+
+INSERT OR IGNORE INTO contact_emails (contact_id, email, is_primary, created_at, source)
+SELECT id, email, 1, created_at, 'legacy'
+FROM contacts
+WHERE email IS NOT NULL
+ORDER BY (archived_at IS NOT NULL) ASC, updated_at DESC;
+
+UPDATE contacts
+SET email = NULL
+WHERE email IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM contact_emails ce
+    WHERE ce.contact_id = contacts.id AND ce.email = contacts.email
+  );
+```
+
+## Migration: 004_email_message_dedupe_indexes.sql
+
+Adds unique indexes for message-id dedupe across mailboxes; falls back to account+mailbox+uidvalidity+uid when message-id is missing.
+
+```sql
+-- 004_email_message_dedupe_indexes.sql
+
+DELETE FROM email_messages
+WHERE message_id IS NOT NULL
+  AND rowid NOT IN (
+    SELECT MIN(rowid)
+    FROM email_messages
+    WHERE message_id IS NOT NULL
+    GROUP BY account, message_id
+  );
+
+DELETE FROM email_messages
+WHERE message_id IS NULL
+  AND rowid NOT IN (
+    SELECT MIN(rowid)
+    FROM email_messages
+    WHERE message_id IS NULL
+    GROUP BY account, mailbox, uidvalidity, uid
+  );
+
+DROP INDEX IF EXISTS idx_email_messages_message_id;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_email_messages_account_message_id
+  ON email_messages(account, message_id)
+  WHERE message_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_email_messages_account_mailbox_uidvalidity_uid_null_message_id
+  ON email_messages(account, mailbox, uidvalidity, uid)
+  WHERE message_id IS NULL;
+```
+
+## Migration: 005_email_message_id_normalize.sql
+
+Normalizes existing `message_id` values (trim/angle bracket removal/lowercase) and rebuilds dedupe indexes.
+
+```sql
+-- 005_email_message_id_normalize.sql
+
+DROP INDEX IF EXISTS idx_email_messages_account_message_id;
+DROP INDEX IF EXISTS idx_email_messages_account_mailbox_uidvalidity_uid_null_message_id;
+
+UPDATE email_messages
+SET message_id = LOWER(TRIM(TRIM(message_id), '<>'))
+WHERE message_id IS NOT NULL;
+
+UPDATE email_messages
+SET message_id = NULL
+WHERE message_id IS NOT NULL AND message_id = '';
+
+DELETE FROM email_messages
+WHERE message_id IS NOT NULL
+  AND rowid NOT IN (
+    SELECT MIN(rowid)
+    FROM email_messages
+    WHERE message_id IS NOT NULL
+    GROUP BY account, message_id
+  );
+
+DELETE FROM email_messages
+WHERE message_id IS NULL
+  AND rowid NOT IN (
+    SELECT MIN(rowid)
+    FROM email_messages
+    WHERE message_id IS NULL
+    GROUP BY account, mailbox, uidvalidity, uid
+  );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_email_messages_account_message_id
+  ON email_messages(account, message_id)
+  WHERE message_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_email_messages_account_mailbox_uidvalidity_uid_null_message_id
+  ON email_messages(account, mailbox, uidvalidity, uid)
+  WHERE message_id IS NULL;
+```

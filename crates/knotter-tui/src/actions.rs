@@ -7,7 +7,7 @@ use knotter_core::dto::{ContactDetailDto, ContactListItemDto, InteractionDto};
 use knotter_core::filter::ArchivedSelector;
 use knotter_core::rules::compute_due_state;
 use knotter_core::time::{local_offset, now_utc};
-use knotter_store::repo::{ContactNew, ContactUpdate, InteractionNew};
+use knotter_store::repo::{ContactNew, ContactUpdate, EmailOps, InteractionNew};
 use knotter_store::{query::ContactQuery, Store};
 
 use crate::app::{App, Mode, TagChoice};
@@ -18,8 +18,8 @@ pub enum Action {
     LoadList,
     LoadDetail(ContactId),
     LoadTags(ContactId),
-    CreateContact(ContactNew),
-    UpdateContact(ContactId, ContactUpdate),
+    CreateContact(ContactNew, Vec<String>),
+    UpdateContact(ContactId, ContactUpdate, Vec<String>),
     AddInteraction(InteractionNew),
     SetTags(ContactId, Vec<TagName>),
     ScheduleContact(ContactId, i64),
@@ -85,16 +85,36 @@ pub fn execute_action(app: &mut App, store: &Store, action: Action) -> Result<()
             }
             app.clear_error();
         }
-        Action::CreateContact(input) => {
+        Action::CreateContact(input, emails) => {
             let now = now_utc();
-            let contact = store.contacts().create(now, input)?;
+            let contact = store.contacts().create_with_emails_and_tags(
+                now,
+                input,
+                Vec::new(),
+                emails,
+                Some("tui"),
+            )?;
             app.set_status(format!("Created {}", contact.display_name));
             app.pending_select = Some(contact.id);
             app.enqueue(Action::LoadList);
         }
-        Action::UpdateContact(id, update) => {
+        Action::UpdateContact(id, update, emails) => {
             let now = now_utc();
-            let contact = store.contacts().update(now, id, update)?;
+            let existing = store.emails().list_emails_for_contact(&id)?;
+            let normalized_existing = normalize_email_list(existing);
+            let normalized_next = normalize_email_list(emails.clone());
+            let email_ops = if normalized_existing == normalized_next {
+                EmailOps::None
+            } else {
+                EmailOps::Replace {
+                    emails,
+                    primary: update.email.clone().unwrap_or(None),
+                    source: Some("tui".to_string()),
+                }
+            };
+            let contact = store
+                .contacts()
+                .update_with_email_ops(now, id, update, email_ops)?;
             app.set_status(format!("Updated {}", contact.display_name));
             app.pending_select = Some(contact.id);
             app.enqueue(Action::LoadList);
@@ -128,6 +148,7 @@ pub fn execute_action(app: &mut App, store: &Store, action: Action) -> Result<()
             let update = ContactUpdate {
                 display_name: None,
                 email: None,
+                email_source: None,
                 phone: None,
                 handle: None,
                 timezone: None,
@@ -145,6 +166,7 @@ pub fn execute_action(app: &mut App, store: &Store, action: Action) -> Result<()
             let update = ContactUpdate {
                 display_name: None,
                 email: None,
+                email_source: None,
                 phone: None,
                 handle: None,
                 timezone: None,
@@ -177,6 +199,18 @@ pub fn execute_action(app: &mut App, store: &Store, action: Action) -> Result<()
     Ok(())
 }
 
+fn normalize_email_list(emails: Vec<String>) -> Vec<String> {
+    let mut normalized = Vec::new();
+    for email in emails {
+        if let Some(value) = knotter_core::domain::normalize_email(&email) {
+            if !normalized.contains(&value) {
+                normalized.push(value);
+            }
+        }
+    }
+    normalized
+}
+
 fn build_list_items(
     contacts: Vec<knotter_core::domain::Contact>,
     tags: HashMap<ContactId, Vec<String>>,
@@ -206,6 +240,7 @@ fn load_detail(store: &Store, contact_id: ContactId) -> Result<Option<ContactDet
         None => return Ok(None),
     };
     let tags = store.tags().list_for_contact(&contact_id.to_string())?;
+    let emails = store.emails().list_emails_for_contact(&contact_id)?;
     let interactions = store.interactions().list_for_contact(contact_id, 50, 0)?;
     let recent_interactions = interactions
         .into_iter()
@@ -225,6 +260,7 @@ fn load_detail(store: &Store, contact_id: ContactId) -> Result<Option<ContactDet
         id: contact.id,
         display_name: contact.display_name,
         email: contact.email,
+        emails,
         phone: contact.phone,
         handle: contact.handle,
         timezone: contact.timezone,

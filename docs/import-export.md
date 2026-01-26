@@ -22,7 +22,7 @@ Optional flags:
 ### Mapping rules
 
 - `FN` → `display_name` (required)
-- `EMAIL` (first) → `email`
+- `EMAIL` (all) → contact emails (first becomes primary)
 - `TEL` (first) → `phone`
 - `CATEGORIES` → tags (normalized; comma-separated)
 - `X-KNOTTER-NEXT-TOUCHPOINT` → `next_touchpoint_at` (unix seconds UTC)
@@ -84,6 +84,8 @@ Optional flags:
 ```
 --dry-run
 --limit <N>
+--force-uidvalidity-resync
+--retry-skipped
 --tag <tag>
 ```
 
@@ -92,6 +94,22 @@ Notes:
 - Use the provider’s CardDAV addressbook URL (often listed in their settings docs).
 - Some providers require an app-specific password when 2FA is enabled.
 - CardDAV import requires the `dav-sync` feature at build time.
+
+## Email account sync (IMAP)
+
+Sync email headers from configured IMAP accounts and record email touches:
+
+```
+knotter import email --account gmail
+```
+
+Notes:
+- Email sync requires the `email-sync` feature at build time.
+- Sync reads headers only (From/To/Date/Subject/Message-ID) and does not store bodies.
+- If the sender email matches an existing contact, it attaches the email and records an email touch.
+- If no match exists, a new contact is created.
+- `--retry-skipped` stops the import run when a header is skipped so you can retry after fixing config or un-archiving contacts.
+- If UIDVALIDITY changes and the mailbox contains messages without Message-ID, import will skip the resync (and not update state) to avoid duplicate touches. Use `--force-uidvalidity-resync` to override.
 
 ## Import sources from config
 

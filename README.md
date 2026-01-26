@@ -137,11 +137,12 @@ Common keys (full list in `docs/KEYBINDINGS.md`):
 - Import vCard: `knotter import vcf <file>`
 - Import macOS Contacts: `knotter import macos`
 - Import CardDAV (Gmail/iCloud/etc.): `knotter import carddav --url <addressbook-url> --username <user> --password-env <ENV>`
+- Import email accounts (IMAP): `knotter import email --account <name> [--limit N] [--retry-skipped] [--force-uidvalidity-resync]`
 - Export vCard: `knotter export vcf --out <file>`
 - Export touchpoints (ICS): `knotter export ics --out <file>`
 - Export full JSON snapshot: `knotter export json --out <file>` (add `--exclude-archived` to omit archived)
 
-CardDAV import requires building with the `dav-sync` feature. See `docs/import-export.md` for mapping details.
+CardDAV import requires building with the `dav-sync` feature. Email import requires building with the `email-sync` feature. See `docs/import-export.md` for mapping details.
 
 ## Reminders
 
@@ -218,6 +219,21 @@ type = "carddav"
 url = "https://example.test/carddav/addressbook/"
 username = "user@example.com"
 password_env = "KNOTTER_GMAIL_PASSWORD"
+tag = "gmail"
+```
+
+Email account sync profiles:
+
+```
+[contacts]
+[[contacts.email_accounts]]
+name = "gmail"
+host = "imap.gmail.com"
+port = 993
+username = "user@gmail.com"
+password_env = "KNOTTER_GMAIL_PASSWORD"
+mailboxes = ["INBOX", "[Gmail]/Sent Mail"]
+merge_policy = "name-or-email"
 tag = "gmail"
 ```
 

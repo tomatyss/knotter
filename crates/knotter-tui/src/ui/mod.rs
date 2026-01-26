@@ -193,15 +193,17 @@ fn render_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
         .constraints([Constraint::Length(9), Constraint::Min(4)])
         .split(area);
 
+    let emails = if !detail.emails.is_empty() {
+        detail.emails.join(", ")
+    } else {
+        detail.email.clone().unwrap_or_else(|| "-".to_string())
+    };
     let mut info_lines = vec![
         Line::from(vec![Span::styled(
             detail.display_name.clone(),
             Style::default().add_modifier(Modifier::BOLD),
         )]),
-        Line::from(format!(
-            "Email: {}",
-            detail.email.clone().unwrap_or_else(|| "-".to_string())
-        )),
+        Line::from(format!("Emails: {}", emails)),
         Line::from(format!(
             "Phone: {}",
             detail.phone.clone().unwrap_or_else(|| "-".to_string())
@@ -286,7 +288,7 @@ fn render_contact_form(frame: &mut Frame<'_>, area: Rect, title: &str, form: &Co
     let block = Block::default().borders(Borders::ALL).title(title);
     let mut lines = vec![
         field_line("Name", &form.name, form.focus == 0),
-        field_line("Email", &form.email, form.focus == 1),
+        field_line("Emails", &form.emails, form.focus == 1),
         field_line("Phone", &form.phone, form.focus == 2),
         field_line("Handle", &form.handle, form.focus == 3),
         field_line("Timezone", &form.timezone, form.focus == 4),

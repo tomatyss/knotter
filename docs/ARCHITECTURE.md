@@ -159,7 +159,7 @@ A contact represents a person you want to keep in touch with.
 Core fields:
 - `id: ContactId`
 - `display_name: String` (required, non-empty)
-- `email: Option<String>`
+- `email: Option<String>` (primary email; additional emails live in `contact_emails`)
 - `phone: Option<String>`
 - `handle: Option<String>` (free text: Discord/IG/etc.)
 - `timezone: Option<String>` (IANA TZ string; optional MVP)
@@ -173,6 +173,8 @@ Invariants:
 - `display_name.trim()` must not be empty.
 - `cadence_days`, if set, must be > 0 and within a reasonable range (e.g. <= 3650).
 - `next_touchpoint_at`, if set, should be a valid timestamp (>= 0 recommended).
+- Contact emails are normalized lowercase; exactly one may be marked primary.
+- `contact_emails.source` tracks provenance (e.g., cli/tui/vcf or email account name).
 
 #### Interaction
 An interaction is a timestamped note/history entry for a contact.
@@ -422,7 +424,7 @@ knotter-sync contains adapters that map between external formats and core types.
 * Map into knotter `ContactCreate` + tags:
 
   * FN -> display_name
-  * first EMAIL -> email
+  * EMAIL (all) -> contact_emails (first becomes primary)
   * first TEL -> phone
   * CATEGORIES -> tags (normalized)
 * Deduplication (choose + document one):
@@ -462,6 +464,17 @@ Round-trip expectations must be documented:
 
 * Other apps may ignore X- fields (fine).
 * knotter should preserve its own X- fields when re-importing its own export.
+
+### 7.3 Email account sync (IMAP, post-MVP)
+
+Email sync ingests headers from configured IMAP inboxes and maps them into
+contact emails + interaction history:
+
+* If an email address matches an existing contact, attach it (and record an email touch).
+* If it matches none, create a new contact.
+* If it matches a unique display name, merge by adding the email to that contact.
+* Each new message creates an `InteractionKind::Email` entry.
+* Sync is incremental using `email_sync_state` (account/mailbox, UIDVALIDITY, last UID).
 
 ### 7.2 iCalendar (.ics) for touchpoints
 
@@ -758,6 +771,23 @@ tag = "personal"
 Notes:
 * `password_env` points to an environment variable so passwords are not stored in plaintext.
 * `name` is case-insensitive and must be unique.
+
+Email account sync config (optional):
+
+```
+[contacts]
+[[contacts.email_accounts]]
+name = "gmail"
+host = "imap.gmail.com"
+port = 993
+username = "user@gmail.com"
+password_env = "KNOTTER_GMAIL_PASSWORD"
+mailboxes = ["INBOX", "[Gmail]/Sent Mail"]
+identities = ["user@gmail.com"]
+merge_policy = "name-or-email" # or "email-only"
+tls = "tls"                    # tls | start-tls | none
+tag = "gmail"
+```
 
 On Unix, config files must be user-readable only (e.g., `chmod 600`).
 

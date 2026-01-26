@@ -1,7 +1,7 @@
 use crate::error::{Result, StoreError};
 use crate::query::{due_bounds, ContactQuery};
 use chrono::FixedOffset;
-use knotter_core::domain::{Contact, ContactId, TagName};
+use knotter_core::domain::{normalize_email, Contact, ContactId, TagName};
 use knotter_core::rules::validate_soon_days;
 use rusqlite::{params, params_from_iter, Connection};
 use std::str::FromStr;
@@ -22,12 +22,29 @@ pub struct ContactNew {
 pub struct ContactUpdate {
     pub display_name: Option<String>,
     pub email: Option<Option<String>>,
+    pub email_source: Option<String>,
     pub phone: Option<Option<String>>,
     pub handle: Option<Option<String>>,
     pub timezone: Option<Option<String>>,
     pub next_touchpoint_at: Option<Option<i64>>,
     pub cadence_days: Option<Option<i32>>,
     pub archived_at: Option<Option<i64>>,
+}
+
+#[derive(Debug, Clone)]
+pub enum EmailOps {
+    None,
+    Replace {
+        emails: Vec<String>,
+        primary: Option<String>,
+        source: Option<String>,
+    },
+    Mutate {
+        clear: bool,
+        add: Vec<String>,
+        remove: Vec<String>,
+        source: Option<String>,
+    },
 }
 
 pub struct ContactsRepo<'a> {
@@ -40,7 +57,64 @@ impl<'a> ContactsRepo<'a> {
     }
 
     pub fn create(&self, now_utc: i64, input: ContactNew) -> Result<Contact> {
-        create_inner(self.conn, now_utc, input)
+        let tx = self.conn.unchecked_transaction()?;
+        let contact = create_inner(&tx, now_utc, input)?;
+        if let Some(email) = contact.email.as_deref() {
+            crate::repo::emails::EmailsRepo::new(&tx).add_email(
+                now_utc,
+                &contact.id,
+                email,
+                Some("primary"),
+                true,
+            )?;
+        }
+        tx.commit()?;
+        Ok(contact)
+    }
+
+    pub fn create_with_emails_and_tags(
+        &self,
+        now_utc: i64,
+        mut input: ContactNew,
+        tags: Vec<TagName>,
+        emails: Vec<String>,
+        source: Option<&str>,
+    ) -> Result<Contact> {
+        let tx = self.conn.unchecked_transaction()?;
+        let mut normalized = normalize_emails(emails);
+        let primary = input
+            .email
+            .as_deref()
+            .and_then(normalize_email)
+            .or_else(|| normalized.first().cloned());
+        input.email = primary.clone();
+        let contact = create_inner(&tx, now_utc, input)?;
+        let emails_repo = crate::repo::emails::EmailsRepo::new(&tx);
+        if let Some(primary) = primary.as_deref() {
+            emails_repo.add_email(
+                now_utc,
+                &contact.id,
+                primary,
+                source.or(Some("primary")),
+                true,
+            )?;
+        }
+        if !normalized.is_empty() {
+            if let Some(primary) = primary.as_deref() {
+                normalized.retain(|email| email != primary);
+            }
+            for email in &normalized {
+                emails_repo.add_email(now_utc, &contact.id, email, source, false)?;
+            }
+        }
+        if let Some(primary) = primary.as_deref() {
+            emails_repo.set_primary(&contact.id, Some(primary))?;
+        }
+        if !tags.is_empty() {
+            crate::repo::tags::set_contact_tags_inner(&tx, &contact.id.to_string(), tags)?;
+        }
+        tx.commit()?;
+        Ok(contact)
     }
 
     pub fn create_with_tags(
@@ -51,6 +125,15 @@ impl<'a> ContactsRepo<'a> {
     ) -> Result<Contact> {
         let tx = self.conn.unchecked_transaction()?;
         let contact = create_inner(&tx, now_utc, input)?;
+        if let Some(email) = contact.email.as_deref() {
+            crate::repo::emails::EmailsRepo::new(&tx).add_email(
+                now_utc,
+                &contact.id,
+                email,
+                Some("primary"),
+                true,
+            )?;
+        }
         if !tags.is_empty() {
             crate::repo::tags::set_contact_tags_inner(&tx, &contact.id.to_string(), tags)?;
         }
@@ -73,13 +156,32 @@ impl<'a> ContactsRepo<'a> {
 
     pub fn list_by_email(&self, email: &str) -> Result<Vec<Contact>> {
         let mut stmt = self.conn.prepare(
+            "SELECT c.id, c.display_name, c.email, c.phone, c.handle, c.timezone, c.next_touchpoint_at, c.cadence_days, c.created_at, c.updated_at, c.archived_at
+             FROM contacts c
+             INNER JOIN contact_emails ce ON ce.contact_id = c.id
+             WHERE ce.email = ?1
+             ORDER BY (c.archived_at IS NOT NULL) ASC, c.updated_at DESC;",
+        )?;
+        let mut rows = stmt.query([normalize_email(email).unwrap_or_else(|| email.to_string())])?;
+        let mut contacts = Vec::new();
+        while let Some(row) = rows.next()? {
+            contacts.push(contact_from_row(row)?);
+        }
+        Ok(contacts)
+    }
+
+    pub fn list_by_display_name(&self, name: &str) -> Result<Vec<Contact>> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut stmt = self.conn.prepare(
             "SELECT id, display_name, email, phone, handle, timezone, next_touchpoint_at, cadence_days, created_at, updated_at, archived_at
              FROM contacts
-             WHERE email IS NOT NULL
-               AND email = ?1 COLLATE NOCASE
+             WHERE display_name = ?1 COLLATE NOCASE
              ORDER BY (archived_at IS NOT NULL) ASC, updated_at DESC;",
         )?;
-        let mut rows = stmt.query([email])?;
+        let mut rows = stmt.query([trimmed])?;
         let mut contacts = Vec::new();
         while let Some(row) = rows.next()? {
             contacts.push(contact_from_row(row)?);
@@ -88,56 +190,31 @@ impl<'a> ContactsRepo<'a> {
     }
 
     pub fn update(&self, now_utc: i64, id: ContactId, update: ContactUpdate) -> Result<Contact> {
-        let mut contact = self
-            .get(id)?
-            .ok_or_else(|| StoreError::NotFound(id.to_string()))?;
+        if self.conn.is_autocommit() {
+            let tx = self.conn.unchecked_transaction()?;
+            let contact = update_inner(&tx, now_utc, id, update)?;
+            tx.commit()?;
+            Ok(contact)
+        } else {
+            update_inner(self.conn, now_utc, id, update)
+        }
+    }
 
-        if let Some(value) = update.display_name {
-            contact.display_name = value;
+    pub fn update_with_email_ops(
+        &self,
+        now_utc: i64,
+        id: ContactId,
+        update: ContactUpdate,
+        email_ops: EmailOps,
+    ) -> Result<Contact> {
+        if self.conn.is_autocommit() {
+            let tx = self.conn.unchecked_transaction()?;
+            let contact = update_with_email_ops_inner(&tx, now_utc, id, update, email_ops)?;
+            tx.commit()?;
+            Ok(contact)
+        } else {
+            update_with_email_ops_inner(self.conn, now_utc, id, update, email_ops)
         }
-        if let Some(value) = update.email {
-            contact.email = value;
-        }
-        if let Some(value) = update.phone {
-            contact.phone = value;
-        }
-        if let Some(value) = update.handle {
-            contact.handle = value;
-        }
-        if let Some(value) = update.timezone {
-            contact.timezone = value;
-        }
-        if let Some(value) = update.next_touchpoint_at {
-            contact.next_touchpoint_at = value;
-        }
-        if let Some(value) = update.cadence_days {
-            contact.cadence_days = value;
-        }
-        if let Some(value) = update.archived_at {
-            contact.archived_at = value;
-        }
-
-        contact.updated_at = now_utc;
-        contact.validate()?;
-
-        self.conn.execute(
-            "UPDATE contacts SET display_name = ?2, email = ?3, phone = ?4, handle = ?5, timezone = ?6, next_touchpoint_at = ?7, cadence_days = ?8, updated_at = ?9, archived_at = ?10
-             WHERE id = ?1;",
-            params![
-                contact.id.to_string(),
-                contact.display_name,
-                contact.email,
-                contact.phone,
-                contact.handle,
-                contact.timezone,
-                contact.next_touchpoint_at,
-                contact.cadence_days,
-                contact.updated_at,
-                contact.archived_at,
-            ],
-        )?;
-
-        Ok(contact)
     }
 
     pub fn delete(&self, id: ContactId) -> Result<()> {
@@ -225,7 +302,7 @@ fn create_inner(conn: &Connection, now_utc: i64, input: ContactNew) -> Result<Co
     let contact = Contact {
         id: ContactId::new(),
         display_name: input.display_name,
-        email: input.email,
+        email: input.email.and_then(|email| normalize_email(&email)),
         phone: input.phone,
         handle: input.handle,
         timezone: input.timezone,
@@ -257,6 +334,188 @@ fn create_inner(conn: &Connection, now_utc: i64, input: ContactNew) -> Result<Co
     )?;
 
     Ok(contact)
+}
+
+fn update_inner(
+    conn: &Connection,
+    now_utc: i64,
+    id: ContactId,
+    update: ContactUpdate,
+) -> Result<Contact> {
+    let mut contact = get_inner(conn, id)?.ok_or_else(|| StoreError::NotFound(id.to_string()))?;
+
+    if let Some(value) = update.display_name {
+        contact.display_name = value;
+    }
+    let email_update = update.email.is_some();
+    let normalized_email = update
+        .email
+        .as_ref()
+        .and_then(|value| value.as_deref())
+        .and_then(normalize_email);
+    if let Some(email) = normalized_email.as_deref() {
+        if let Some(existing_id) =
+            crate::repo::emails::EmailsRepo::new(conn).find_contact_id_by_email(email)?
+        {
+            if existing_id != contact.id {
+                return Err(StoreError::DuplicateEmail(email.to_string()));
+            }
+        }
+    }
+    if email_update {
+        contact.email = normalized_email.clone();
+    }
+    if let Some(value) = update.phone {
+        contact.phone = value;
+    }
+    if let Some(value) = update.handle {
+        contact.handle = value;
+    }
+    if let Some(value) = update.timezone {
+        contact.timezone = value;
+    }
+    if let Some(value) = update.next_touchpoint_at {
+        contact.next_touchpoint_at = value;
+    }
+    if let Some(value) = update.cadence_days {
+        contact.cadence_days = value;
+    }
+    if let Some(value) = update.archived_at {
+        contact.archived_at = value;
+    }
+
+    contact.updated_at = now_utc;
+    contact.validate()?;
+
+    conn.execute(
+        "UPDATE contacts SET display_name = ?2, email = ?3, phone = ?4, handle = ?5, timezone = ?6, next_touchpoint_at = ?7, cadence_days = ?8, updated_at = ?9, archived_at = ?10
+         WHERE id = ?1;",
+        params![
+            contact.id.to_string(),
+            contact.display_name,
+            contact.email,
+            contact.phone,
+            contact.handle,
+            contact.timezone,
+            contact.next_touchpoint_at,
+            contact.cadence_days,
+            contact.updated_at,
+            contact.archived_at,
+        ],
+    )?;
+
+    if email_update {
+        let emails = crate::repo::emails::EmailsRepo::new(conn);
+        match normalized_email.as_deref() {
+            Some(email) => {
+                let source = update.email_source.as_deref().or(Some("primary"));
+                emails.add_email(now_utc, &contact.id, email, source, true)?;
+                emails.set_primary(&contact.id, Some(email))?;
+            }
+            None => {
+                emails.clear_emails(&contact.id)?;
+            }
+        }
+    }
+
+    Ok(contact)
+}
+
+fn update_with_email_ops_inner(
+    conn: &Connection,
+    now_utc: i64,
+    id: ContactId,
+    update: ContactUpdate,
+    email_ops: EmailOps,
+) -> Result<Contact> {
+    let update_empty = update_is_empty(&update);
+    let mut contact = if update_empty {
+        get_inner(conn, id)?.ok_or_else(|| StoreError::NotFound(id.to_string()))?
+    } else {
+        update_inner(conn, now_utc, id, update)?
+    };
+
+    let emails_repo = crate::repo::emails::EmailsRepo::new(conn);
+    match email_ops {
+        EmailOps::None => {}
+        EmailOps::Replace {
+            emails,
+            primary,
+            source,
+        } => {
+            emails_repo.replace_emails_in_tx(
+                now_utc,
+                &contact.id,
+                emails,
+                primary,
+                source.as_deref(),
+            )?;
+        }
+        EmailOps::Mutate {
+            clear,
+            add,
+            remove,
+            source,
+        } => {
+            if clear {
+                emails_repo.clear_emails(&contact.id)?;
+            }
+            for email in add {
+                emails_repo.add_email(now_utc, &contact.id, &email, source.as_deref(), true)?;
+            }
+            for email in remove {
+                emails_repo.remove_email(&contact.id, &email)?;
+            }
+        }
+    }
+
+    if update_empty {
+        conn.execute(
+            "UPDATE contacts SET updated_at = ?2 WHERE id = ?1;",
+            params![contact.id.to_string(), now_utc],
+        )?;
+    }
+
+    if let Some(updated) = get_inner(conn, id)? {
+        contact = updated;
+    }
+    Ok(contact)
+}
+
+fn get_inner(conn: &Connection, id: ContactId) -> Result<Option<Contact>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, display_name, email, phone, handle, timezone, next_touchpoint_at, cadence_days, created_at, updated_at, archived_at
+         FROM contacts WHERE id = ?1;",
+    )?;
+    let mut rows = stmt.query([id.to_string()])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(contact_from_row(row)?))
+    } else {
+        Ok(None)
+    }
+}
+
+fn update_is_empty(update: &ContactUpdate) -> bool {
+    update.display_name.is_none()
+        && update.email.is_none()
+        && update.phone.is_none()
+        && update.handle.is_none()
+        && update.timezone.is_none()
+        && update.next_touchpoint_at.is_none()
+        && update.cadence_days.is_none()
+        && update.archived_at.is_none()
+}
+
+fn normalize_emails(emails: Vec<String>) -> Vec<String> {
+    let mut normalized: Vec<String> = Vec::new();
+    for email in emails {
+        if let Some(email) = normalize_email(&email) {
+            if !normalized.contains(&email) {
+                normalized.push(email);
+            }
+        }
+    }
+    normalized
 }
 
 fn contact_from_row(row: &rusqlite::Row<'_>) -> Result<Contact> {

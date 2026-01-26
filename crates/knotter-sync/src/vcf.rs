@@ -15,7 +15,7 @@ pub struct ImportReport {
 #[derive(Debug, Clone)]
 pub struct VcfContact {
     pub display_name: String,
-    pub email: Option<String>,
+    pub emails: Vec<String>,
     pub phone: Option<String>,
     pub tags: Vec<TagName>,
     pub next_touchpoint_at: Option<i64>,
@@ -73,8 +73,9 @@ pub fn parse_vcf(data: &str) -> Result<ParsedVcf> {
             }
             "EMAIL" => {
                 let value = unescape_vcard_value(&raw_value);
-                if card.email.is_none() && !value.trim().is_empty() {
-                    card.email = Some(value.trim().to_string());
+                let trimmed = value.trim();
+                if !trimmed.is_empty() {
+                    card.emails.push(trimmed.to_string());
                 }
             }
             "TEL" => {
@@ -127,7 +128,11 @@ pub fn parse_vcf(data: &str) -> Result<ParsedVcf> {
     })
 }
 
-pub fn export_vcf(contacts: &[Contact], tags: &HashMap<ContactId, Vec<String>>) -> Result<String> {
+pub fn export_vcf(
+    contacts: &[Contact],
+    tags: &HashMap<ContactId, Vec<String>>,
+    emails: &HashMap<ContactId, Vec<String>>,
+) -> Result<String> {
     let mut entries: Vec<&Contact> = contacts.iter().collect();
     entries.sort_by_key(|contact| contact.display_name.to_ascii_lowercase());
 
@@ -140,8 +145,14 @@ pub fn export_vcf(contacts: &[Contact], tags: &HashMap<ContactId, Vec<String>>) 
             escape_vcard_value(&contact.display_name)
         ));
 
-        if let Some(email) = &contact.email {
-            out.push_str(&format!("EMAIL:{}\r\n", escape_vcard_value(email)));
+        let mut email_list = emails.get(&contact.id).cloned().unwrap_or_default();
+        if email_list.is_empty() {
+            if let Some(email) = &contact.email {
+                email_list.push(email.clone());
+            }
+        }
+        for email in email_list {
+            out.push_str(&format!("EMAIL:{}\r\n", escape_vcard_value(&email)));
         }
         if let Some(phone) = &contact.phone {
             out.push_str(&format!("TEL:{}\r\n", escape_vcard_value(phone)));
@@ -177,7 +188,7 @@ pub fn export_vcf(contacts: &[Contact], tags: &HashMap<ContactId, Vec<String>>) 
 #[derive(Default)]
 struct RawCard {
     fn_name: Option<String>,
-    email: Option<String>,
+    emails: Vec<String>,
     phone: Option<String>,
     categories: Vec<String>,
     next_touchpoint_at: Option<String>,
@@ -237,9 +248,23 @@ impl RawCard {
             None => None,
         };
 
+        let mut emails = Vec::new();
+        for raw in self.emails {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if !emails
+                .iter()
+                .any(|value: &String| value.as_str().eq_ignore_ascii_case(trimmed))
+            {
+                emails.push(trimmed.to_string());
+            }
+        }
+
         Some(VcfContact {
             display_name,
-            email: self.email,
+            emails,
             phone: self.phone,
             tags,
             next_touchpoint_at,
@@ -379,7 +404,10 @@ mod tests {
         assert_eq!(parsed.contacts.len(), 1);
         let contact = &parsed.contacts[0];
         assert_eq!(contact.display_name, "Jane Doe");
-        assert_eq!(contact.email.as_deref(), Some("jane@example.com"));
+        assert_eq!(
+            contact.emails.first().map(String::as_str),
+            Some("jane@example.com")
+        );
         assert_eq!(contact.phone.as_deref(), Some("555-1234"));
         assert_eq!(contact.tags.len(), 2);
     }
@@ -417,7 +445,10 @@ mod tests {
         assert_eq!(parsed.contacts.len(), 1);
         let contact = &parsed.contacts[0];
         assert_eq!(contact.display_name, "Jane Doe");
-        assert_eq!(contact.email.as_deref(), Some("jane@example.com"));
+        assert_eq!(
+            contact.emails.first().map(String::as_str),
+            Some("jane@example.com")
+        );
     }
 
     #[test]
@@ -438,7 +469,9 @@ mod tests {
 
         let mut tag_map = HashMap::new();
         tag_map.insert(contact.id, vec!["friends".to_string(), "work".to_string()]);
-        let output = export_vcf(&[contact], &tag_map).expect("export");
+        let mut email_map = HashMap::new();
+        email_map.insert(contact.id, vec!["ada@example.com".to_string()]);
+        let output = export_vcf(&[contact], &tag_map, &email_map).expect("export");
         assert!(output.contains("BEGIN:VCARD"));
         assert!(output.contains("FN:Ada Lovelace"));
         assert!(output.contains("EMAIL:ada@example.com"));
@@ -465,13 +498,18 @@ mod tests {
         };
         let mut tag_map = HashMap::new();
         tag_map.insert(contact.id, vec!["pioneers".to_string()]);
+        let mut email_map = HashMap::new();
+        email_map.insert(contact.id, vec!["grace@example.com".to_string()]);
 
-        let output = export_vcf(&[contact], &tag_map).expect("export");
+        let output = export_vcf(&[contact], &tag_map, &email_map).expect("export");
         let parsed = parse_vcf(&output).expect("parse");
         assert_eq!(parsed.contacts.len(), 1);
         let round = &parsed.contacts[0];
         assert_eq!(round.display_name, "Grace Hopper");
-        assert_eq!(round.email.as_deref(), Some("grace@example.com"));
+        assert_eq!(
+            round.emails.first().map(String::as_str),
+            Some("grace@example.com")
+        );
         assert_eq!(round.next_touchpoint_at, Some(1_700_123_456));
         assert_eq!(round.cadence_days, Some(14));
         assert_eq!(round.tags.len(), 1);

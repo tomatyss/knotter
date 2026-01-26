@@ -73,7 +73,7 @@ impl ContactQuery {
 
         for term in &self.text_terms {
             clauses.push(
-                "(display_name LIKE ? OR email LIKE ? OR phone LIKE ? OR handle LIKE ?)"
+                "(display_name LIKE ? OR phone LIKE ? OR handle LIKE ? OR EXISTS (SELECT 1 FROM contact_emails ce WHERE ce.contact_id = contacts.id AND ce.email LIKE ?))"
                     .to_string(),
             );
             let like = format!("%{}%", term);

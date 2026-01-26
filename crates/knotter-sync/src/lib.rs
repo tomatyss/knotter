@@ -1,4 +1,5 @@
 pub mod carddav;
+pub mod email;
 pub mod error;
 pub mod ics;
 pub mod macos;

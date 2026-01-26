@@ -74,6 +74,7 @@ fn store_exit_code(err: &StoreError) -> u8 {
         | StoreErrorKind::InvalidBackupPath
         | StoreErrorKind::InvalidInteractionKind
         | StoreErrorKind::InvalidDataPath
+        | StoreErrorKind::DuplicateEmail
         | StoreErrorKind::Core => EXIT_INVALID_INPUT,
         StoreErrorKind::MissingHomeDir
         | StoreErrorKind::Migration
@@ -97,6 +98,9 @@ fn config_exit_code(err: &ConfigError) -> u8 {
         | ConfigError::InvalidContactSourceName(_)
         | ConfigError::DuplicateContactSourceName(_)
         | ConfigError::InvalidContactSourceField { .. }
+        | ConfigError::InvalidEmailAccountName(_)
+        | ConfigError::DuplicateEmailAccountName(_)
+        | ConfigError::InvalidEmailAccountField { .. }
         | ConfigError::InvalidNotificationsEmailField { .. }
         | ConfigError::Read { .. }
         | ConfigError::Parse { .. } => EXIT_INVALID_INPUT,
