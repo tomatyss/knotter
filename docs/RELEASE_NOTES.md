@@ -1,5 +1,10 @@
 # Release Notes
 
+## v0.2.2 (2026-01-26)
+
+### Packaging & Defaults
+- Fixes `Cargo.lock` entries so default-feature builds resolve cleanly again.
+
 ## v0.2.1 (2026-01-26)
 
 ### Packaging & Defaults
