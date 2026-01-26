@@ -1679,3 +1679,37 @@ cadence_days = 30
     assert!(ada_detail["cadence_days"].is_number());
     assert_eq!(grace_detail["cadence_days"], 7);
 }
+
+#[test]
+fn cli_sync_rejects_json() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+
+    let output = cargo_bin_cmd!("knotter")
+        .args([
+            "--db-path",
+            db_path.to_str().expect("db path"),
+            "--json",
+            "sync",
+        ])
+        .output()
+        .expect("run command");
+
+    assert!(!output.status.success(), "command unexpectedly succeeded");
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    assert!(stderr.contains("sync does not support --json"));
+}
+
+#[test]
+fn cli_sync_errors_without_sources_or_accounts() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+
+    let output = run_cmd_output(&db_path, &["sync"]);
+
+    assert!(!output.status.success(), "command unexpectedly succeeded");
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8(output.stderr).expect("utf8");
+    assert!(stderr.contains("no contact sources or email accounts configured"));
+}
