@@ -843,16 +843,23 @@ Minimum expectations:
 
 ## 15. Feature flags (recommended)
 
-To keep the binary lean and portable:
+Feature flags keep optional integrations isolated. Default builds (v0.2.1+) enable sync
+features, while notification backends remain opt-in:
 
 * `desktop-notify` feature:
 
   * enables desktop notifications backend
+* `email-notify` feature:
+
+  * enables SMTP notifications backend
 * `dav-sync` feature:
 
   * enables CardDAV import code (post-MVP sync)
+* `email-sync` feature:
 
-The default build should remain fully usable without these.
+  * enables IMAP email import/sync
+
+Use `--no-default-features` for a minimal build and re-enable features explicitly.
 
 ---
 

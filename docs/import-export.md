@@ -93,7 +93,7 @@ Notes:
 
 - Use the provider’s CardDAV addressbook URL (often listed in their settings docs).
 - Some providers require an app-specific password when 2FA is enabled.
-- CardDAV import requires the `dav-sync` feature at build time.
+- CardDAV import is enabled by default (v0.2.1+). Disable with `--no-default-features` or re-enable with `--features dav-sync`.
 
 ## Email account sync (IMAP)
 
@@ -104,7 +104,7 @@ knotter import email --account gmail
 ```
 
 Notes:
-- Email sync requires the `email-sync` feature at build time.
+- Email sync is enabled by default (v0.2.1+). Disable with `--no-default-features` or re-enable with `--features email-sync`.
 - Sync reads headers only (From/To/Date/Subject/Message-ID) and does not store bodies.
 - If the sender email matches an existing contact, it attaches the email and records an email touch.
 - If no match exists, a new contact is created.

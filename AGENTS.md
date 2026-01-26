@@ -11,6 +11,7 @@ No build system is checked in yet. Once the Cargo workspace is created, use stan
 - `cargo fmt` / `cargo fmt --check` — format code.
 - `cargo clippy --all-targets --all-features -D warnings` — lint.
 - After any update (code or docs), run `just precommit` and fix any issues it reports.
+- Default CLI builds include sync features (`dav-sync`, `email-sync`) so imports work out of the box; use `--no-default-features` only for a minimal build.
 
 ## Coding Style & Naming Conventions
 - Language: Rust. Prefer `rustfmt` defaults (4-space indentation; wrap by formatter).

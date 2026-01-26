@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.2.1 (2026-01-26)
+
+### Packaging & Defaults
+- Default builds now include `dav-sync` and `email-sync`, so CardDAV and IMAP imports work out of the box.
+- Use `--no-default-features` to build a minimal binary and re-enable sync features explicitly.
+
 ## v0.2.0 (2026-01-25)
 
 ### Highlights

@@ -142,7 +142,7 @@ Common keys (full list in `docs/KEYBINDINGS.md`):
 - Export touchpoints (ICS): `knotter export ics --out <file>`
 - Export full JSON snapshot: `knotter export json --out <file>` (add `--exclude-archived` to omit archived)
 
-CardDAV import requires building with the `dav-sync` feature. Email import requires building with the `email-sync` feature. See `docs/import-export.md` for mapping details.
+CardDAV and email import are enabled in default builds (v0.2.1+). To slim down a build, use `--no-default-features` and re-enable sync with `--features dav-sync,email-sync`. See `docs/import-export.md` for mapping details.
 
 ## Reminders
 

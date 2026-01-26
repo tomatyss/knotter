@@ -1,6 +1,6 @@
 [package]
 name = "knotter-cli"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Tomatyss <tomatyss@users.noreply.github.com>"]
 license = "Apache-2.0"
 description = "Terminal-first personal CRM and friendship tracker (CLI)."
@@ -25,7 +25,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [features]
-default = []
+default = ["dav-sync", "email-sync"]
 desktop-notify = ["notify-rust"]
 email-notify = ["lettre"]
 dav-sync = ["knotter-sync/dav-sync"]
