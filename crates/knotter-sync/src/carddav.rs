@@ -107,7 +107,7 @@ mod imp {
 
     fn parse_address_data(body: &str) -> Result<Vec<String>> {
         let mut reader = Reader::from_str(body);
-        reader.trim_text(false);
+        reader.config_mut().trim_text(false);
 
         let mut buf = Vec::new();
         let mut cards = Vec::new();
