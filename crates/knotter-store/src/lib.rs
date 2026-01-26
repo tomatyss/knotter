@@ -46,6 +46,14 @@ impl Store {
         repo::ContactsRepo::new(&self.conn)
     }
 
+    pub fn emails(&self) -> repo::EmailsRepo<'_> {
+        repo::EmailsRepo::new(&self.conn)
+    }
+
+    pub fn email_sync(&self) -> repo::EmailSyncRepo<'_> {
+        repo::EmailSyncRepo::new(&self.conn)
+    }
+
     pub fn tags(&self) -> repo::TagsRepo<'_> {
         repo::TagsRepo::new(&self.conn)
     }

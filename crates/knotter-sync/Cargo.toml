@@ -12,7 +12,10 @@ thiserror = "2"
 quick-xml = { version = "0.31", optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"], optional = true }
 url = { version = "2", optional = true }
+imap = { version = "3.0.0-alpha.15", optional = true }
+mailparse = { version = "0.14", optional = true }
 
 [features]
 default = []
 dav-sync = ["dep:quick-xml", "dep:reqwest", "dep:url"]
+email-sync = ["dep:imap", "dep:mailparse"]

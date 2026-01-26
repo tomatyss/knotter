@@ -7,20 +7,20 @@ use crate::util::{
 use anyhow::Result;
 use clap::{ArgAction, Args};
 use knotter_config::LoopAnchor;
-use knotter_core::domain::TagName;
+use knotter_core::domain::{normalize_email, TagName};
 use knotter_core::dto::{ContactDetailDto, ContactListItemDto, InteractionDto};
 use knotter_core::filter::parse_filter;
 use knotter_core::rules::compute_due_state;
 use knotter_core::rules::{ensure_future_timestamp_with_precision, schedule_next};
 use knotter_store::query::ContactQuery;
-use knotter_store::repo::{ContactNew, ContactUpdate};
+use knotter_store::repo::{ContactNew, ContactUpdate, EmailOps};
 
 #[derive(Debug, Args)]
 pub struct AddContactArgs {
     #[arg(long)]
     pub name: String,
-    #[arg(long)]
-    pub email: Option<String>,
+    #[arg(long, value_name = "EMAIL", action = ArgAction::Append)]
+    pub email: Vec<String>,
     #[arg(long)]
     pub phone: Option<String>,
     #[arg(long)]
@@ -42,6 +42,12 @@ pub struct EditContactArgs {
     pub name: Option<String>,
     #[arg(long)]
     pub email: Option<String>,
+    #[arg(long, value_name = "EMAIL", action = ArgAction::Append)]
+    pub add_email: Vec<String>,
+    #[arg(long, value_name = "EMAIL", action = ArgAction::Append)]
+    pub remove_email: Vec<String>,
+    #[arg(long, action = ArgAction::SetTrue, conflicts_with_all = ["email", "add_email", "remove_email"])]
+    pub clear_emails: bool,
     #[arg(long)]
     pub phone: Option<String>,
     #[arg(long)]
@@ -118,11 +124,13 @@ pub fn add_contact(ctx: &Context<'_>, args: AddContactArgs) -> Result<()> {
         next_touchpoint_at
     };
 
-    let contact = ctx.store.contacts().create_with_tags(
+    let emails = normalize_emails(&args.email);
+    let primary_email = emails.first().cloned();
+    let contact = ctx.store.contacts().create_with_emails_and_tags(
         now,
         ContactNew {
             display_name: args.name,
-            email: args.email,
+            email: primary_email.clone(),
             phone: args.phone,
             handle: args.handle,
             timezone: args.timezone,
@@ -131,6 +139,8 @@ pub fn add_contact(ctx: &Context<'_>, args: AddContactArgs) -> Result<()> {
             archived_at: None,
         },
         tags,
+        emails,
+        Some("cli"),
     )?;
 
     if ctx.json {
@@ -145,12 +155,22 @@ pub fn edit_contact(ctx: &Context<'_>, args: EditContactArgs) -> Result<()> {
     let now = now_utc();
     let id = parse_contact_id(&args.id)?;
 
+    if args.email.is_some() && (!args.add_email.is_empty() || !args.remove_email.is_empty()) {
+        return Err(invalid_input(
+            "--email cannot be combined with --add-email or --remove-email",
+        ));
+    }
+
     let mut update = ContactUpdate::default();
     if let Some(name) = args.name {
         update.display_name = Some(name);
     }
     if let Some(email) = args.email {
         update.email = Some(normalize_optional_value(email));
+        update.email_source = Some("cli".to_string());
+    }
+    if args.clear_emails {
+        update.email = Some(None);
     }
     if let Some(phone) = args.phone {
         update.phone = Some(normalize_optional_value(phone));
@@ -170,11 +190,37 @@ pub fn edit_contact(ctx: &Context<'_>, args: EditContactArgs) -> Result<()> {
         update.next_touchpoint_at = Some(Some(parsed));
     }
 
-    if update_is_empty(&update) {
+    let add_emails = normalize_emails(&args.add_email);
+    let remove_emails = normalize_emails(&args.remove_email);
+    let has_email_ops = args.clear_emails || !add_emails.is_empty() || !remove_emails.is_empty();
+    if !add_emails.is_empty() && !remove_emails.is_empty() {
+        for email in &add_emails {
+            if remove_emails.contains(email) {
+                return Err(invalid_input(format!(
+                    "email {email} cannot be both added and removed"
+                )));
+            }
+        }
+    }
+    if update_is_empty(&update) && !has_email_ops {
         return Err(invalid_input("no updates provided"));
     }
 
-    let contact = ctx.store.contacts().update(now, id, update)?;
+    let email_ops = if has_email_ops {
+        EmailOps::Mutate {
+            clear: args.clear_emails,
+            add: add_emails,
+            remove: remove_emails,
+            source: Some("cli".to_string()),
+        }
+    } else {
+        EmailOps::None
+    };
+
+    let contact = ctx
+        .store
+        .contacts()
+        .update_with_email_ops(now, id, update.clone(), email_ops)?;
     if ctx.json {
         print_json(&contact)?;
     } else {
@@ -212,10 +258,12 @@ pub fn show_contact(ctx: &Context<'_>, args: ShowArgs) -> Result<()> {
         })
         .collect();
 
+    let emails = ctx.store.emails().list_emails_for_contact(&contact.id)?;
     let detail = ContactDetailDto {
         id: contact.id,
         display_name: contact.display_name.clone(),
         email: contact.email.clone(),
+        emails,
         phone: contact.phone.clone(),
         handle: contact.handle.clone(),
         timezone: contact.timezone.clone(),
@@ -235,7 +283,16 @@ pub fn show_contact(ctx: &Context<'_>, args: ShowArgs) -> Result<()> {
 
     println!("id: {}", detail.id);
     println!("name: {}", detail.display_name);
-    if let Some(email) = detail.email.as_deref() {
+    if !detail.emails.is_empty() {
+        println!("emails:");
+        for email in &detail.emails {
+            if Some(email) == detail.email.as_ref() {
+                println!("  {} (primary)", email);
+            } else {
+                println!("  {}", email);
+            }
+        }
+    } else if let Some(email) = detail.email.as_deref() {
         println!("email: {}", email);
     }
     if let Some(phone) = detail.phone.as_deref() {
@@ -406,6 +463,21 @@ fn normalize_optional_value(value: String) -> Option<String> {
     } else {
         Some(trimmed.to_string())
     }
+}
+
+fn normalize_emails(values: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for value in values {
+        if let Some(email) = normalize_email(value) {
+            if !out
+                .iter()
+                .any(|existing| existing.eq_ignore_ascii_case(&email))
+            {
+                out.push(email);
+            }
+        }
+    }
+    out
 }
 
 fn update_is_empty(update: &ContactUpdate) -> bool {

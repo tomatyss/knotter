@@ -26,6 +26,8 @@ pub enum StoreError {
     InvalidInteractionKind(String),
     #[error("invalid filter: {0}")]
     InvalidFilter(String),
+    #[error("duplicate email: {0}")]
+    DuplicateEmail(String),
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;
@@ -43,6 +45,7 @@ pub enum StoreErrorKind {
     InvalidBackupPath,
     InvalidInteractionKind,
     InvalidFilter,
+    DuplicateEmail,
 }
 
 impl StoreError {
@@ -59,6 +62,7 @@ impl StoreError {
             StoreError::InvalidBackupPath(_) => StoreErrorKind::InvalidBackupPath,
             StoreError::InvalidInteractionKind(_) => StoreErrorKind::InvalidInteractionKind,
             StoreError::InvalidFilter(_) => StoreErrorKind::InvalidFilter,
+            StoreError::DuplicateEmail(_) => StoreErrorKind::DuplicateEmail,
         }
     }
 }
