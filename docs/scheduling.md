@@ -124,6 +124,68 @@ Use JSON output for automation. Notifications only run when `--notify` is set:
 /path/to/knotter remind --json
 ```
 
+## macOS: sync + loops + reminders on reconnect
+
+If you want to sync contacts and email when the network is available, use
+`knotter sync` and a LaunchAgent with a lightweight network check. This runs
+all configured contact sources and email accounts, then applies loops and
+runs `knotter remind`.
+
+1) Create a helper script at `~/.config/knotter/knotter-sync.sh`:
+
+```
+#!/bin/zsh
+set -euo pipefail
+
+if ! /usr/sbin/scutil -r www.apple.com | /usr/bin/grep -q "^Reachable"; then
+  exit 0
+fi
+
+exec /path/to/knotter sync
+```
+
+Make it executable:
+
+```
+chmod +x ~/.config/knotter/knotter-sync.sh
+```
+
+2) Create `~/Library/LaunchAgents/com.knotter.sync.plist`:
+
+```
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.knotter.sync</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/you/.config/knotter/knotter-sync.sh</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StartInterval</key>
+  <integer>300</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/you/Library/Logs/knotter-sync.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/you/Library/Logs/knotter-sync.err.log</string>
+</dict>
+</plist>
+```
+
+Load it:
+
+```
+launchctl load ~/Library/LaunchAgents/com.knotter.sync.plist
+```
+
+Notes:
+- This polls every 5 minutes and only runs when the network is reachable, so it
+  effectively runs on the next connection without failing offline.
+- Use `knotter sync --no-remind` if you want to separate sync from reminders.
+
 ## Notes
 
 - `knotter remind` prints human output to stdout unless `--json` is used. If

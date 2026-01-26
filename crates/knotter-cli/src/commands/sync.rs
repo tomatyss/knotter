@@ -34,7 +34,7 @@ pub enum ImportCommand {
     Source(ImportSourceArgs),
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Args, Clone)]
 pub struct ImportCommonArgs {
     #[arg(long)]
     pub dry_run: bool,
@@ -102,6 +102,92 @@ pub struct ImportEmailArgs {
     pub force_uidvalidity_resync: bool,
     #[command(flatten)]
     pub common: ImportCommonArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct SyncArgs {
+    #[command(flatten)]
+    pub common: ImportCommonArgs,
+    #[arg(
+        long,
+        help = "Force a full resync on UIDVALIDITY changes (may duplicate touches when Message-ID is missing)"
+    )]
+    pub force_uidvalidity_resync: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub no_loops: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub no_remind: bool,
+}
+
+trait SyncRunner {
+    fn import_source(
+        &self,
+        ctx: &Context<'_>,
+        source_name: &str,
+        common: &ImportCommonArgs,
+    ) -> Result<()>;
+    fn import_email(
+        &self,
+        ctx: &Context<'_>,
+        common: &ImportCommonArgs,
+        force_uidvalidity_resync: bool,
+    ) -> Result<()>;
+    fn apply_loops(&self, ctx: &Context<'_>, dry_run: bool) -> Result<()>;
+    fn remind(&self, ctx: &Context<'_>, dry_run: bool) -> Result<()>;
+}
+
+struct DefaultSyncRunner;
+
+impl SyncRunner for DefaultSyncRunner {
+    fn import_source(
+        &self,
+        ctx: &Context<'_>,
+        source_name: &str,
+        common: &ImportCommonArgs,
+    ) -> Result<()> {
+        let args = ImportSourceArgs {
+            name: source_name.to_string(),
+            password_env: None,
+            password_stdin: false,
+            common: common.clone(),
+        };
+        import_source(ctx, args)
+    }
+
+    fn import_email(
+        &self,
+        ctx: &Context<'_>,
+        common: &ImportCommonArgs,
+        force_uidvalidity_resync: bool,
+    ) -> Result<()> {
+        let args = ImportEmailArgs {
+            account: Vec::new(),
+            force_uidvalidity_resync,
+            common: common.clone(),
+        };
+        import_email(ctx, args)
+    }
+
+    fn apply_loops(&self, ctx: &Context<'_>, dry_run: bool) -> Result<()> {
+        let args = crate::commands::loops::LoopApplyArgs {
+            filter: None,
+            dry_run,
+            force: false,
+            schedule_missing: false,
+            no_schedule_missing: false,
+            anchor: None,
+        };
+        crate::commands::loops::apply_loops(ctx, args)
+    }
+
+    fn remind(&self, ctx: &Context<'_>, dry_run: bool) -> Result<()> {
+        let args = crate::commands::remind::RemindArgs {
+            soon_days: None,
+            notify: false,
+            no_notify: dry_run,
+        };
+        crate::commands::remind::remind(ctx, args)
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -464,6 +550,88 @@ pub fn import_email(ctx: &Context<'_>, args: ImportEmailArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+pub fn sync_all(ctx: &Context<'_>, args: SyncArgs) -> Result<()> {
+    sync_all_with_runner(ctx, args, &DefaultSyncRunner)
+}
+
+fn sync_all_with_runner(ctx: &Context<'_>, args: SyncArgs, runner: &dyn SyncRunner) -> Result<()> {
+    if ctx.json {
+        return Err(invalid_input(
+            "sync does not support --json; run import/loops/remind separately",
+        ));
+    }
+
+    let mut ran_any = false;
+    let mut errors: Vec<String> = Vec::new();
+
+    if ctx.config.contacts.sources.is_empty() {
+        println!("no contact sources configured; skipping contact import");
+    } else {
+        for source in &ctx.config.contacts.sources {
+            ran_any = true;
+            record_sync_result(
+                format!("contact source {}", source.name),
+                runner.import_source(ctx, &source.name, &args.common),
+                &mut errors,
+            );
+        }
+    }
+
+    if ctx.config.contacts.email_accounts.is_empty() {
+        println!("no email accounts configured; skipping email import");
+    } else {
+        ran_any = true;
+        record_sync_result(
+            "email import".to_string(),
+            runner.import_email(ctx, &args.common, args.force_uidvalidity_resync),
+            &mut errors,
+        );
+    }
+
+    if !ran_any {
+        return Err(invalid_input(
+            "no contact sources or email accounts configured",
+        ));
+    }
+
+    if !args.no_loops {
+        if crate::commands::loops::loops_configured(ctx.config) {
+            record_sync_result(
+                "loops apply".to_string(),
+                runner.apply_loops(ctx, args.common.dry_run),
+                &mut errors,
+            );
+        } else {
+            println!("no loops configured; skipping loop apply");
+        }
+    }
+
+    if !args.no_remind {
+        record_sync_result(
+            "remind".to_string(),
+            runner.remind(ctx, args.common.dry_run),
+            &mut errors,
+        );
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!(format!(
+            "sync completed with {} error(s)",
+            errors.len()
+        )))
+    }
+}
+
+fn record_sync_result(label: String, result: Result<()>, errors: &mut Vec<String>) {
+    if let Err(err) = result {
+        let message = format!("{label}: {err}");
+        eprintln!("warning: {message}");
+        errors.push(message);
+    }
 }
 
 pub fn export_vcf(ctx: &Context<'_>, args: ExportVcfArgs) -> Result<()> {
@@ -1242,10 +1410,16 @@ fn merge_tags(ctx: &Context<'_>, contact_id: &ContactId, incoming: Vec<TagName>)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use knotter_config::AppConfig;
+    use knotter_config::{
+        AppConfig, ContactSourceConfig, ContactSourceKind, EmailAccountConfig, EmailAccountTls,
+        EmailMergePolicy, MacosSourceConfig,
+    };
     use knotter_store::repo::ContactNew;
     use knotter_store::Store;
     use knotter_sync::email::{EmailAddress, EmailHeader};
+    use std::cell::{Cell, RefCell};
+    use std::collections::HashSet;
+    use tempfile::TempDir;
 
     #[test]
     fn email_import_skips_ambiguous_name_matches() {
@@ -1328,5 +1502,215 @@ mod tests {
             .warnings
             .iter()
             .any(|warning| warning.contains("matches multiple contacts by name")));
+    }
+
+    #[derive(Default)]
+    struct TestRunner {
+        calls: RefCell<Vec<String>>,
+        fail_on: RefCell<HashSet<String>>,
+        last_force_uidvalidity: Cell<Option<bool>>,
+    }
+
+    impl TestRunner {
+        fn fail_step(&self, label: &str) {
+            self.fail_on.borrow_mut().insert(label.to_string());
+        }
+
+        fn record(&self, label: &str) -> Result<()> {
+            self.calls.borrow_mut().push(label.to_string());
+            if self.fail_on.borrow().contains(label) {
+                return Err(anyhow::anyhow!("boom"));
+            }
+            Ok(())
+        }
+    }
+
+    impl SyncRunner for TestRunner {
+        fn import_source(
+            &self,
+            _ctx: &Context<'_>,
+            source_name: &str,
+            _common: &ImportCommonArgs,
+        ) -> Result<()> {
+            self.record(&format!("source:{source_name}"))
+        }
+
+        fn import_email(
+            &self,
+            _ctx: &Context<'_>,
+            _common: &ImportCommonArgs,
+            force_uidvalidity_resync: bool,
+        ) -> Result<()> {
+            self.last_force_uidvalidity
+                .set(Some(force_uidvalidity_resync));
+            self.record("email")
+        }
+
+        fn apply_loops(&self, _ctx: &Context<'_>, _dry_run: bool) -> Result<()> {
+            self.record("loops")
+        }
+
+        fn remind(&self, _ctx: &Context<'_>, _dry_run: bool) -> Result<()> {
+            self.record("remind")
+        }
+    }
+
+    fn base_sync_args() -> SyncArgs {
+        SyncArgs {
+            common: ImportCommonArgs {
+                dry_run: false,
+                limit: None,
+                retry_skipped: false,
+                tag: Vec::new(),
+            },
+            force_uidvalidity_resync: false,
+            no_loops: false,
+            no_remind: false,
+        }
+    }
+
+    #[test]
+    fn sync_best_effort_continues_after_errors() {
+        let mut config = AppConfig::default();
+        config.contacts.sources = vec![
+            ContactSourceConfig {
+                name: "alpha".to_string(),
+                kind: ContactSourceKind::Macos(MacosSourceConfig {
+                    group: None,
+                    tag: None,
+                }),
+            },
+            ContactSourceConfig {
+                name: "beta".to_string(),
+                kind: ContactSourceKind::Macos(MacosSourceConfig {
+                    group: None,
+                    tag: None,
+                }),
+            },
+        ];
+        config.contacts.email_accounts = vec![EmailAccountConfig {
+            name: "work".to_string(),
+            host: "example.test".to_string(),
+            port: 993,
+            username: "user@example.test".to_string(),
+            password_env: "KNOTTER_EMAIL_PASSWORD".to_string(),
+            mailboxes: vec!["INBOX".to_string()],
+            identities: vec!["user@example.test".to_string()],
+            tag: None,
+            merge_policy: EmailMergePolicy::EmailOnly,
+            tls: EmailAccountTls::Tls,
+        }];
+        config.loops.policy.default_cadence_days = Some(14);
+
+        let temp = TempDir::new().expect("temp dir");
+        let db_path = temp.path().join("knotter.sqlite3");
+        let store = Store::open(&db_path).expect("open store");
+        store.migrate().expect("migrate");
+        let ctx = Context {
+            store: &store,
+            json: false,
+            config: &config,
+        };
+        let runner = TestRunner::default();
+        runner.fail_step("source:alpha");
+
+        let result = sync_all_with_runner(&ctx, base_sync_args(), &runner);
+        assert!(result.is_err());
+
+        let calls = runner.calls.borrow();
+        assert!(calls.contains(&"source:alpha".to_string()));
+        assert!(calls.contains(&"source:beta".to_string()));
+        assert!(calls.contains(&"email".to_string()));
+        assert!(calls.contains(&"loops".to_string()));
+        assert!(calls.contains(&"remind".to_string()));
+    }
+
+    #[test]
+    fn sync_respects_no_loops_and_no_remind() {
+        let mut config = AppConfig::default();
+        config.contacts.sources = vec![ContactSourceConfig {
+            name: "alpha".to_string(),
+            kind: ContactSourceKind::Macos(MacosSourceConfig {
+                group: None,
+                tag: None,
+            }),
+        }];
+        config.contacts.email_accounts = vec![EmailAccountConfig {
+            name: "work".to_string(),
+            host: "example.test".to_string(),
+            port: 993,
+            username: "user@example.test".to_string(),
+            password_env: "KNOTTER_EMAIL_PASSWORD".to_string(),
+            mailboxes: vec!["INBOX".to_string()],
+            identities: vec!["user@example.test".to_string()],
+            tag: None,
+            merge_policy: EmailMergePolicy::EmailOnly,
+            tls: EmailAccountTls::Tls,
+        }];
+        config.loops.policy.default_cadence_days = Some(14);
+
+        let temp = TempDir::new().expect("temp dir");
+        let db_path = temp.path().join("knotter.sqlite3");
+        let store = Store::open(&db_path).expect("open store");
+        store.migrate().expect("migrate");
+        let ctx = Context {
+            store: &store,
+            json: false,
+            config: &config,
+        };
+        let runner = TestRunner::default();
+        let mut args = base_sync_args();
+        args.no_loops = true;
+        args.no_remind = true;
+
+        let result = sync_all_with_runner(&ctx, args, &runner);
+        assert!(result.is_ok());
+
+        let calls = runner.calls.borrow();
+        assert!(calls.contains(&"source:alpha".to_string()));
+        assert!(calls.contains(&"email".to_string()));
+        assert!(!calls.contains(&"loops".to_string()));
+        assert!(!calls.contains(&"remind".to_string()));
+    }
+
+    #[test]
+    fn sync_forwards_force_uidvalidity_resync() {
+        let mut config = AppConfig::default();
+        config.contacts.sources = vec![ContactSourceConfig {
+            name: "alpha".to_string(),
+            kind: ContactSourceKind::Macos(MacosSourceConfig {
+                group: None,
+                tag: None,
+            }),
+        }];
+        config.contacts.email_accounts = vec![EmailAccountConfig {
+            name: "work".to_string(),
+            host: "example.test".to_string(),
+            port: 993,
+            username: "user@example.test".to_string(),
+            password_env: "KNOTTER_EMAIL_PASSWORD".to_string(),
+            mailboxes: vec!["INBOX".to_string()],
+            identities: vec!["user@example.test".to_string()],
+            tag: None,
+            merge_policy: EmailMergePolicy::EmailOnly,
+            tls: EmailAccountTls::Tls,
+        }];
+
+        let temp = TempDir::new().expect("temp dir");
+        let db_path = temp.path().join("knotter.sqlite3");
+        let store = Store::open(&db_path).expect("open store");
+        store.migrate().expect("migrate");
+        let ctx = Context {
+            store: &store,
+            json: false,
+            config: &config,
+        };
+        let runner = TestRunner::default();
+        let mut args = base_sync_args();
+        args.force_uidvalidity_resync = true;
+
+        let result = sync_all_with_runner(&ctx, args, &runner);
+        assert!(result.is_ok());
+        assert_eq!(runner.last_force_uidvalidity.get(), Some(true));
     }
 }

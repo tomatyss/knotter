@@ -100,6 +100,14 @@ Output: JSON object containing:
   - `next_touchpoint_after` (number|null)
   - `scheduled` (boolean)
 
+### `knotter sync`
+
+`knotter sync` runs all configured contact sources and email accounts, then
+applies loops and runs reminders. It does not support `--json`; use individual
+commands (`import`, `loops apply`, `remind`) if you need machine-readable output.
+Sync is best-effort: it continues after failures, prints warnings to stderr, and
+returns a non-zero exit code if any step fails.
+
 ### JSON for mutating commands
 
 For `add-contact`, `edit-contact`, `archive-contact`, `unarchive-contact`, `schedule`,

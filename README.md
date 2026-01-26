@@ -138,6 +138,7 @@ Common keys (full list in `docs/KEYBINDINGS.md`):
 - Import macOS Contacts: `knotter import macos`
 - Import CardDAV (Gmail/iCloud/etc.): `knotter import carddav --url <addressbook-url> --username <user> --password-env <ENV>`
 - Import email accounts (IMAP): `knotter import email --account <name> [--limit N] [--retry-skipped] [--force-uidvalidity-resync]`
+- Sync all configured sources + email accounts, then apply loops and remind: `knotter sync`
 - Export vCard: `knotter export vcf --out <file>`
 - Export touchpoints (ICS): `knotter export ics --out <file>`
 - Export full JSON snapshot: `knotter export json --out <file>` (add `--exclude-archived` to omit archived)

@@ -58,6 +58,7 @@ enum Command {
     #[command(name = "clear-schedule")]
     ClearSchedule(schedule::ClearScheduleArgs),
     Remind(remind::RemindArgs),
+    Sync(sync::SyncArgs),
     Tui(tui::TuiArgs),
     #[command(subcommand)]
     Import(sync::ImportCommand),
@@ -145,6 +146,7 @@ fn run(cli: Cli) -> Result<()> {
                 Command::Schedule(args) => schedule::schedule_contact(&ctx, args),
                 Command::ClearSchedule(args) => schedule::clear_schedule(&ctx, args),
                 Command::Remind(args) => remind::remind(&ctx, args),
+                Command::Sync(args) => sync::sync_all(&ctx, args),
                 Command::Tui(_) => unreachable!("tui command handled before store initialization"),
                 Command::Completions(_) => {
                     unreachable!("completions command handled before store initialization")
