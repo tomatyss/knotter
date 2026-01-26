@@ -1070,7 +1070,7 @@ fn cli_backup_rejects_db_path() {
 }
 
 #[test]
-fn cli_import_vcf_skips_duplicate_email() {
+fn cli_add_contact_rejects_duplicate_email() {
     let temp = TempDir::new().expect("temp dir");
     let db_path = temp.path().join("knotter.sqlite3");
     let vcf_path = temp.path().join("contacts.vcf");
@@ -1085,7 +1085,7 @@ fn cli_import_vcf_skips_duplicate_email() {
             "dup@example.com",
         ],
     );
-    run_cmd(
+    let output = run_cmd_output(
         &db_path,
         &[
             "add-contact",
@@ -1095,6 +1095,9 @@ fn cli_import_vcf_skips_duplicate_email() {
             "dup@example.com",
         ],
     );
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("duplicate email"));
 
     let vcf = "BEGIN:VCARD\nVERSION:3.0\nFN:Updated Name\nEMAIL:dup@example.com\nEND:VCARD\n";
     std::fs::write(&vcf_path, vcf).expect("write vcf");
@@ -1103,8 +1106,52 @@ fn cli_import_vcf_skips_duplicate_email() {
         &db_path,
         &["import", "vcf", vcf_path.to_str().expect("path")],
     );
-    assert_eq!(report["updated"], 0);
-    assert_eq!(report["skipped"], 1);
+    assert_eq!(report["created"], 0);
+    assert_eq!(report["updated"], 1);
+    assert_eq!(report["skipped"], 0);
+
+    let list = run_cmd_json(&db_path, &["list"]);
+    let names: Vec<String> = list
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|item| item["display_name"].as_str().expect("name").to_string())
+        .collect();
+    assert!(names.contains(&"Updated Name".to_string()));
+    assert!(!names.contains(&"Second".to_string()));
+}
+
+#[test]
+fn cli_add_contact_rejects_duplicate_secondary_email() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+
+    run_cmd(
+        &db_path,
+        &[
+            "add-contact",
+            "--name",
+            "First",
+            "--email",
+            "dup@example.com",
+        ],
+    );
+
+    let output = run_cmd_output(
+        &db_path,
+        &[
+            "add-contact",
+            "--name",
+            "Second",
+            "--email",
+            "second@example.com",
+            "--email",
+            "dup@example.com",
+        ],
+    );
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("duplicate email"));
 
     let list = run_cmd_json(&db_path, &["list"]);
     let names: Vec<String> = list
@@ -1114,7 +1161,34 @@ fn cli_import_vcf_skips_duplicate_email() {
         .map(|item| item["display_name"].as_str().expect("name").to_string())
         .collect();
     assert!(names.contains(&"First".to_string()));
-    assert!(names.contains(&"Second".to_string()));
+    assert!(!names.contains(&"Second".to_string()));
+}
+
+#[test]
+fn cli_edit_contact_rejects_add_remove_overlap() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+
+    let output = run_cmd_json(
+        &db_path,
+        &["add-contact", "--name", "Ada", "--email", "ada@example.com"],
+    );
+    let id = output["id"].as_str().expect("id");
+
+    let output = run_cmd_output(
+        &db_path,
+        &[
+            "edit-contact",
+            id,
+            "--add-email",
+            "ada.work@example.com",
+            "--remove-email",
+            "ada.work@example.com",
+        ],
+    );
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("cannot be both added and removed"));
 }
 
 #[test]

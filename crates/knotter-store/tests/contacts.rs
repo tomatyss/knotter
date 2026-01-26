@@ -1,5 +1,5 @@
 use knotter_core::domain::{ContactId, TagName};
-use knotter_store::repo::{ContactNew, ContactUpdate};
+use knotter_store::repo::{ContactNew, ContactUpdate, EmailOps};
 use knotter_store::Store;
 
 #[test]
@@ -46,6 +46,11 @@ fn contact_crud_roundtrip() {
         .expect("update contact");
     assert_eq!(updated.display_name, "Ada Byron");
     assert!(updated.email.is_none());
+    let emails = store
+        .emails()
+        .list_emails_for_contact(&contact.id)
+        .expect("list emails");
+    assert!(emails.is_empty());
 
     store.contacts().delete(contact.id).expect("delete contact");
     let missing = store.contacts().get(contact.id).expect("get contact");
@@ -80,7 +85,7 @@ fn list_by_email_is_case_insensitive_and_prefers_active() {
             now + 10,
             ContactNew {
                 display_name: "Ada (Archived)".to_string(),
-                email: Some("ada@example.com".to_string()),
+                email: Some("ada.archive@example.com".to_string()),
                 phone: None,
                 handle: None,
                 timezone: None,
@@ -95,9 +100,9 @@ fn list_by_email_is_case_insensitive_and_prefers_active() {
         .contacts()
         .list_by_email("ada@example.com")
         .expect("find");
-    assert_eq!(found.len(), 2);
+    assert_eq!(found.len(), 1);
     assert_eq!(found[0].id, active.id);
-    assert_eq!(found[1].id, archived.id);
+    assert_ne!(found[0].id, archived.id);
 }
 
 #[test]
@@ -229,6 +234,47 @@ fn list_names_for_contacts_handles_large_inputs() {
         .expect("bulk tag list");
     let tags = map.get(&contact.id).expect("tag list");
     assert_eq!(tags, &vec!["friends".to_string()]);
+}
+
+#[test]
+fn update_with_email_ops_updates_timestamp() {
+    let store = Store::open_in_memory().expect("open in memory");
+    store.migrate().expect("migrate");
+    let now = 1_700_000_000;
+
+    let contact = store
+        .contacts()
+        .create(
+            now,
+            ContactNew {
+                display_name: "Ada".to_string(),
+                email: Some("ada@example.com".to_string()),
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create contact");
+
+    let updated = store
+        .contacts()
+        .update_with_email_ops(
+            now + 10,
+            contact.id,
+            ContactUpdate::default(),
+            EmailOps::Mutate {
+                clear: false,
+                add: vec!["ada.work@example.com".to_string()],
+                remove: Vec::new(),
+                source: None,
+            },
+        )
+        .expect("update");
+
+    assert_eq!(updated.updated_at, now + 10);
 }
 
 #[test]

@@ -81,12 +81,20 @@ pub enum LoopAnchor {
 #[derive(Debug, Clone, Default)]
 pub struct ContactsConfig {
     pub sources: Vec<ContactSourceConfig>,
+    pub email_accounts: Vec<EmailAccountConfig>,
 }
 
 impl ContactsConfig {
     pub fn source(&self, name: &str) -> Option<&ContactSourceConfig> {
         let needle = normalize_source_name(name).ok()?;
         self.sources.iter().find(|source| source.name == needle)
+    }
+
+    pub fn email_account(&self, name: &str) -> Option<&EmailAccountConfig> {
+        let needle = normalize_source_name(name).ok()?;
+        self.email_accounts
+            .iter()
+            .find(|account| account.name == needle)
     }
 }
 
@@ -114,6 +122,35 @@ pub struct CardDavSourceConfig {
 pub struct MacosSourceConfig {
     pub group: Option<String>,
     pub tag: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EmailMergePolicy {
+    EmailOnly,
+    NameOrEmail,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EmailAccountTls {
+    Tls,
+    StartTls,
+    None,
+}
+
+#[derive(Debug, Clone)]
+pub struct EmailAccountConfig {
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub password_env: String,
+    pub mailboxes: Vec<String>,
+    pub identities: Vec<String>,
+    pub tag: Option<String>,
+    pub merge_policy: EmailMergePolicy,
+    pub tls: EmailAccountTls,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -178,6 +215,12 @@ pub enum ConfigError {
     DuplicateContactSourceName(String),
     #[error("invalid contact source {source_name} field: {field}")]
     InvalidContactSourceField { source_name: String, field: String },
+    #[error("invalid email account name: {0}")]
+    InvalidEmailAccountName(String),
+    #[error("duplicate email account name: {0}")]
+    DuplicateEmailAccountName(String),
+    #[error("invalid email account {account_name} field: {field}")]
+    InvalidEmailAccountField { account_name: String, field: String },
     #[error("invalid notifications email field: {field}")]
     InvalidNotificationsEmailField { field: String },
     #[error("failed to read config file {path}: {source}")]
@@ -259,6 +302,7 @@ struct LoopRuleFile {
 #[serde(deny_unknown_fields)]
 struct ContactsFile {
     sources: Option<Vec<ContactSourceFile>>,
+    email_accounts: Option<Vec<EmailAccountFile>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -276,6 +320,21 @@ enum ContactSourceFile {
         group: Option<String>,
         tag: Option<String>,
     },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EmailAccountFile {
+    name: String,
+    host: String,
+    port: Option<u16>,
+    username: String,
+    password_env: String,
+    mailboxes: Option<Vec<String>>,
+    identities: Option<Vec<String>>,
+    tag: Option<String>,
+    merge_policy: Option<EmailMergePolicy>,
+    tls: Option<EmailAccountTls>,
 }
 
 pub fn load(config_path: Option<PathBuf>) -> Result<AppConfig> {
@@ -478,6 +537,46 @@ fn merge_config(parsed: ConfigFile) -> Result<AppConfig> {
                     .push(ContactSourceConfig { name, kind });
             }
         }
+        if let Some(accounts) = contacts.email_accounts {
+            let mut seen: HashSet<String> = HashSet::new();
+            for account in accounts {
+                let name = normalize_email_account_name(&account.name)?;
+                if !seen.insert(name.clone()) {
+                    return Err(ConfigError::DuplicateEmailAccountName(name));
+                }
+                let host = normalize_email_account_field(account.host, &name, "host")?;
+                let port = account.port.unwrap_or(993);
+                if port == 0 {
+                    return Err(ConfigError::InvalidEmailAccountField {
+                        account_name: name.clone(),
+                        field: "port".to_string(),
+                    });
+                }
+                let username = normalize_email_account_field(account.username, &name, "username")?;
+                let password_env =
+                    normalize_email_account_field(account.password_env, &name, "password_env")?;
+                let mailboxes = normalize_mailboxes(account.mailboxes, &name)?;
+                let identities = normalize_identities(account.identities, &username);
+                let tag = normalize_optional_tag_for_email_account(account.tag, &name)?;
+                let merge_policy = account
+                    .merge_policy
+                    .unwrap_or(EmailMergePolicy::NameOrEmail);
+                let tls = account.tls.unwrap_or(EmailAccountTls::Tls);
+
+                config.contacts.email_accounts.push(EmailAccountConfig {
+                    name,
+                    host,
+                    port,
+                    username,
+                    password_env,
+                    mailboxes,
+                    identities,
+                    tag,
+                    merge_policy,
+                    tls,
+                });
+            }
+        }
     }
 
     Ok(config)
@@ -560,6 +659,74 @@ fn normalize_source_name(name: &str) -> Result<String> {
     Ok(trimmed.to_ascii_lowercase())
 }
 
+fn normalize_email_account_name(name: &str) -> Result<String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err(ConfigError::InvalidEmailAccountName(name.to_string()));
+    }
+    Ok(trimmed.to_ascii_lowercase())
+}
+
+fn normalize_email_account_field(value: String, account: &str, field: &str) -> Result<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(ConfigError::InvalidEmailAccountField {
+            account_name: account.to_string(),
+            field: field.to_string(),
+        });
+    }
+    Ok(trimmed.to_string())
+}
+
+fn normalize_mailboxes(value: Option<Vec<String>>, account: &str) -> Result<Vec<String>> {
+    let list = value.unwrap_or_else(|| vec!["INBOX".to_string()]);
+    let mut out = Vec::new();
+    for raw in list {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err(ConfigError::InvalidEmailAccountField {
+                account_name: account.to_string(),
+                field: "mailboxes".to_string(),
+            });
+        }
+        if !out
+            .iter()
+            .any(|existing: &String| existing.eq_ignore_ascii_case(trimmed))
+        {
+            out.push(trimmed.to_string());
+        }
+    }
+    if out.is_empty() {
+        return Err(ConfigError::InvalidEmailAccountField {
+            account_name: account.to_string(),
+            field: "mailboxes".to_string(),
+        });
+    }
+    Ok(out)
+}
+
+fn normalize_identities(value: Option<Vec<String>>, username: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(values) = value {
+        for raw in values {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if !out
+                .iter()
+                .any(|existing: &String| existing.eq_ignore_ascii_case(trimmed))
+            {
+                out.push(trimmed.to_string());
+            }
+        }
+    }
+    if out.is_empty() && username.contains('@') {
+        out.push(username.to_string());
+    }
+    out
+}
+
 fn normalize_optional_string(value: Option<String>) -> Option<String> {
     value.and_then(|raw| {
         let trimmed = raw.trim();
@@ -615,6 +782,31 @@ fn normalize_optional_tag(value: Option<String>, source_name: &str) -> Result<Op
     }
 }
 
+fn normalize_optional_tag_for_email_account(
+    value: Option<String>,
+    account_name: &str,
+) -> Result<Option<String>> {
+    match value {
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                return Err(ConfigError::InvalidEmailAccountField {
+                    account_name: account_name.to_string(),
+                    field: "tag".to_string(),
+                });
+            }
+            let tag = knotter_core::domain::TagName::new(trimmed).map_err(|_| {
+                ConfigError::InvalidEmailAccountField {
+                    account_name: account_name.to_string(),
+                    field: "tag".to_string(),
+                }
+            })?;
+            Ok(Some(tag.as_str().to_string()))
+        }
+        None => Ok(None),
+    }
+}
+
 fn normalize_required_string(value: String, source: &str, field: &str) -> Result<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -650,9 +842,9 @@ fn ensure_permissions(_path: &Path) -> Result<()> {
 mod tests {
     use super::{
         load_at_path, merge_config, CardDavSourceConfig, ConfigFile, ContactSourceFile,
-        ContactSourceKind, ContactsFile, EmailTls, LoopAnchor, LoopConfigFile, LoopRuleFile,
-        LoopStrategy, MacosSourceConfig, NotificationBackend, NotificationsEmailFile,
-        NotificationsFile,
+        ContactSourceKind, ContactsFile, EmailAccountFile, EmailAccountTls, EmailMergePolicy,
+        EmailTls, LoopAnchor, LoopConfigFile, LoopRuleFile, LoopStrategy, MacosSourceConfig,
+        NotificationBackend, NotificationsEmailFile, NotificationsFile,
     };
     use std::fs;
     use std::path::Path;
@@ -853,6 +1045,7 @@ mod tests {
                         tag: None,
                     },
                 ]),
+                email_accounts: None,
             }),
         };
 
@@ -877,6 +1070,44 @@ mod tests {
     }
 
     #[test]
+    fn merge_config_parses_email_accounts() {
+        let parsed = ConfigFile {
+            due_soon_days: None,
+            default_cadence_days: None,
+            notifications: None,
+            interactions: None,
+            loops: None,
+            contacts: Some(ContactsFile {
+                sources: None,
+                email_accounts: Some(vec![EmailAccountFile {
+                    name: "Gmail".to_string(),
+                    host: "imap.example.com".to_string(),
+                    port: None,
+                    username: "user@example.com".to_string(),
+                    password_env: "KNOTTER_GMAIL_PASSWORD".to_string(),
+                    mailboxes: Some(vec!["INBOX".to_string(), "Sent".to_string()]),
+                    identities: Some(vec!["user@example.com".to_string()]),
+                    tag: Some("friends".to_string()),
+                    merge_policy: Some(EmailMergePolicy::NameOrEmail),
+                    tls: Some(EmailAccountTls::Tls),
+                }]),
+            }),
+        };
+
+        let merged = merge_config(parsed).expect("merge");
+        assert_eq!(merged.contacts.email_accounts.len(), 1);
+        let account = &merged.contacts.email_accounts[0];
+        assert_eq!(account.name, "gmail");
+        assert_eq!(account.host, "imap.example.com");
+        assert_eq!(account.port, 993);
+        assert_eq!(account.mailboxes, vec!["INBOX", "Sent"]);
+        assert_eq!(account.identities, vec!["user@example.com"]);
+        assert_eq!(account.tag.as_deref(), Some("friends"));
+        assert_eq!(account.merge_policy, EmailMergePolicy::NameOrEmail);
+        assert_eq!(account.tls, EmailAccountTls::Tls);
+    }
+
+    #[test]
     fn merge_config_rejects_duplicate_sources() {
         let parsed = ConfigFile {
             due_soon_days: None,
@@ -897,6 +1128,7 @@ mod tests {
                         tag: None,
                     },
                 ]),
+                email_accounts: None,
             }),
         };
 
@@ -920,6 +1152,7 @@ mod tests {
                     password_env: Some("KNOTTER_GMAIL_PASSWORD".to_string()),
                     tag: None,
                 }]),
+                email_accounts: None,
             }),
         };
 
@@ -943,6 +1176,7 @@ mod tests {
                     password_env: Some("".to_string()),
                     tag: Some("friends".to_string()),
                 }]),
+                email_accounts: None,
             }),
         };
 
@@ -1079,6 +1313,7 @@ mod tests {
                     password_env: None,
                     tag: None,
                 }]),
+                email_accounts: None,
             }),
         };
 
@@ -1100,6 +1335,7 @@ mod tests {
                     group: None,
                     tag: Some("   ".to_string()),
                 }]),
+                email_accounts: None,
             }),
         };
 

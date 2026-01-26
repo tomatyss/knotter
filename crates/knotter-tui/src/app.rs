@@ -619,7 +619,7 @@ pub struct ContactForm {
     pub(crate) focus: usize,
     pub contact_id: Option<ContactId>,
     pub name: String,
-    pub email: String,
+    pub emails: String,
     pub phone: String,
     pub handle: String,
     pub timezone: String,
@@ -637,7 +637,7 @@ impl ContactForm {
             focus: 0,
             contact_id: None,
             name: String::new(),
-            email: String::new(),
+            emails: String::new(),
             phone: String::new(),
             handle: String::new(),
             timezone: String::new(),
@@ -655,11 +655,18 @@ impl ContactForm {
             .next_touchpoint_at
             .map(knotter_core::time::format_timestamp_date_or_datetime)
             .unwrap_or_default();
+        let mut emails = detail.emails.clone();
+        if emails.is_empty() {
+            if let Some(email) = detail.email.as_deref() {
+                emails.push(email.to_string());
+            }
+        }
+        let emails = emails.join(", ");
         Self {
             focus: 0,
             contact_id: Some(detail.id),
             name: detail.display_name.clone(),
-            email: detail.email.clone().unwrap_or_default(),
+            emails,
             phone: detail.phone.clone().unwrap_or_default(),
             handle: detail.handle.clone().unwrap_or_default(),
             timezone: detail.timezone.clone().unwrap_or_default(),
@@ -698,7 +705,7 @@ impl ContactForm {
     pub fn active_field_mut(&mut self) -> Option<&mut String> {
         match self.focus {
             0 => Some(&mut self.name),
-            1 => Some(&mut self.email),
+            1 => Some(&mut self.emails),
             2 => Some(&mut self.phone),
             3 => Some(&mut self.handle),
             4 => Some(&mut self.timezone),
@@ -752,7 +759,8 @@ impl ContactForm {
             )
         };
 
-        let email = normalize_optional(&self.email);
+        let emails = parse_emails(&self.emails);
+        let primary_email = emails.first().cloned();
         let phone = normalize_optional(&self.phone);
         let handle = normalize_optional(&self.handle);
         let timezone = normalize_optional(&self.timezone);
@@ -760,7 +768,8 @@ impl ContactForm {
         if let Some(contact_id) = self.contact_id {
             let update = knotter_store::repo::ContactUpdate {
                 display_name: Some(name.to_string()),
-                email: Some(email),
+                email: Some(primary_email),
+                email_source: Some("tui".to_string()),
                 phone: Some(phone),
                 handle: Some(handle),
                 timezone: Some(timezone),
@@ -768,11 +777,11 @@ impl ContactForm {
                 cadence_days: Some(cadence),
                 archived_at: None,
             };
-            Ok(Action::UpdateContact(contact_id, update))
+            Ok(Action::UpdateContact(contact_id, update, emails))
         } else {
             let input = knotter_store::repo::ContactNew {
                 display_name: name.to_string(),
-                email,
+                email: primary_email,
                 phone,
                 handle,
                 timezone,
@@ -780,7 +789,7 @@ impl ContactForm {
                 cadence_days: cadence,
                 archived_at: None,
             };
-            Ok(Action::CreateContact(input))
+            Ok(Action::CreateContact(input, emails))
         }
     }
 }
@@ -1109,4 +1118,19 @@ fn normalize_optional(raw: &str) -> Option<String> {
     } else {
         Some(trimmed.to_string())
     }
+}
+
+fn parse_emails(raw: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for part in raw.split([',', ';', '\n']) {
+        if let Some(email) = knotter_core::domain::normalize_email(part) {
+            if !out
+                .iter()
+                .any(|value| value.as_str().eq_ignore_ascii_case(&email))
+            {
+                out.push(email);
+            }
+        }
+    }
+    out
 }
