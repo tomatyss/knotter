@@ -26,6 +26,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
 
     match &app.mode {
         Mode::Detail(_) => render_detail(frame, chunks[1], app),
+        Mode::MergeList => render_merge_list(frame, chunks[1], app),
         _ => render_list(frame, chunks[1], app),
     }
 
@@ -72,8 +73,9 @@ fn render_header(frame: &mut Frame<'_>, area: Rect, app: &App) {
 
 fn render_footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let hint = match app.mode {
-        Mode::List => "j/k move  enter detail  / filter  a add  e edit  n note  t tags  s schedule  x clear  A archive  v archived  ? help",
-        Mode::Detail(_) => "esc back  j/k scroll  e edit  n note  t tags  s schedule  x clear  A archive  ? help",
+        Mode::List => "j/k move  enter detail  / filter  a add  e edit  n note  t tags  s schedule  x clear  A archive  v archived  m merges  ? help",
+        Mode::Detail(_) => "esc back  j/k scroll  e edit  n note  t tags  s schedule  x clear  A archive  m merges  ? help",
+        Mode::MergeList => "j/k move  enter merge  p prefer  d dismiss  r refresh  esc back",
         Mode::FilterEditing => "enter apply  esc cancel",
         Mode::ModalAddContact(_) | Mode::ModalEditContact(_) => {
             "tab next  shift+tab prev  enter select  ctrl+n set now  esc cancel"
@@ -169,6 +171,76 @@ fn render_list(frame: &mut Frame<'_>, area: Rect, app: &App) {
 
     let list = List::new(items)
         .block(Block::default().borders(Borders::ALL).title("Contacts"))
+        .highlight_style(
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::LightGreen)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("➤ ");
+
+    frame.render_stateful_widget(list, area, &mut state);
+}
+
+fn render_merge_list(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    if app.merge_candidates.is_empty() {
+        let paragraph = Paragraph::new("No merge candidates.")
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Merge candidates"),
+            )
+            .alignment(Alignment::Center);
+        frame.render_widget(paragraph, area);
+        return;
+    }
+
+    let items: Vec<ListItem> = app
+        .merge_candidates
+        .iter()
+        .map(|candidate| {
+            let preferred = candidate
+                .preferred_contact_id
+                .map(|id| {
+                    if id == candidate.contact_a_id {
+                        candidate.contact_a_name.as_str()
+                    } else {
+                        candidate.contact_b_name.as_str()
+                    }
+                })
+                .unwrap_or("?");
+            let line = Line::from(vec![
+                Span::styled(
+                    format!(
+                        "{} <-> {}",
+                        candidate.contact_a_name, candidate.contact_b_name
+                    ),
+                    Style::default().add_modifier(Modifier::BOLD),
+                ),
+                Span::raw("  "),
+                Span::styled(
+                    candidate.reason.clone(),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::raw("  "),
+                Span::styled(
+                    format!("preferred: {}", preferred),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]);
+            ListItem::new(line)
+        })
+        .collect();
+
+    let mut state = ListState::default();
+    state.select(Some(app.merge_selected));
+
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Merge candidates"),
+        )
         .highlight_style(
             Style::default()
                 .fg(Color::Black)
@@ -500,9 +572,10 @@ fn render_help(frame: &mut Frame<'_>, area: Rect) {
 
     let text = vec![
         Line::from("Global: q quit, Ctrl+C quit, ? help"),
-        Line::from("List: j/k move, enter detail, / filter, a add, e edit, n note, t tags, s schedule, x clear, A archive, v archived"),
+        Line::from("List: j/k move, enter detail, / filter, a add, e edit, n note, t tags, s schedule, x clear, A archive, v archived, m merges"),
         Line::from("Filter: enter apply, esc cancel"),
-        Line::from("Detail: esc back, j/k scroll, e edit, n note, t tags, s schedule, x clear, A archive"),
+        Line::from("Detail: esc back, j/k scroll, e edit, n note, t tags, s schedule, x clear, A archive, m merges"),
+        Line::from("Merge: j/k move, enter merge, p prefer, d dismiss, r refresh, esc back"),
         Line::from("Modals: tab/shift+tab move, enter activate, esc cancel, Ctrl+N set now (contact/schedule)"),
         Line::from(""),
         Line::from("Filter syntax: #tag, due:overdue|today|soon|any|none, archived:true|false, text matches name/email/phone/handle"),

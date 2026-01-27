@@ -431,7 +431,13 @@ knotter-sync contains adapters that map between external formats and core types.
 
   * Option A (simplest): always create new contacts
   * Option B (better MVP): if email matches an existing contact, update that contact
-  * Option C: interactive merge (post-MVP)
+  * Option C: interactive merge via merge candidates (implemented)
+
+Manual merge candidates are created when imports/sync encounter ambiguous matches
+(e.g., multiple name matches or duplicate emails). Candidates are resolved via
+`knotter merge` or the TUI merge list.
+Applying a merge marks the chosen candidate as merged and dismisses any other
+open candidates that referenced the removed contact.
 
 Import should return a report:
 
@@ -473,6 +479,8 @@ contact emails + interaction history:
 * If an email address matches an existing contact, attach it (and record an email touch).
 * If it matches none, create a new contact.
 * If it matches a unique display name, merge by adding the email to that contact.
+* If it matches multiple display names, stage an archived contact and create merge candidates.
+* Duplicate-email conflicts create merge candidates for manual resolution.
 * Each new message creates an `InteractionKind::Email` entry.
 * Sync is incremental using `email_sync_state` (account/mailbox, UIDVALIDITY, last UID).
 

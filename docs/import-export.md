@@ -32,9 +32,11 @@ Optional flags:
 
 - If `EMAIL` is present and matches exactly one active contact (case-insensitive), update that contact.
 - If `EMAIL` is missing, always create a new contact.
-- If multiple contacts share the same email, the import skips the entry and emits a warning.
+- If multiple contacts share the same email, knotter stages an archived contact and creates merge candidates.
+- Staged contacts only include emails that are not already assigned to other contacts (to satisfy uniqueness).
 - If the only match is archived, the import skips the entry and emits a warning.
 - Imported tags are merged with existing tags when updating.
+Resolve merge candidates via `knotter merge` or the TUI merge list.
 
 ### Warnings
 
@@ -108,6 +110,7 @@ Notes:
 - Sync reads headers only (From/To/Date/Subject/Message-ID) and does not store bodies.
 - If the sender email matches an existing contact, it attaches the email and records an email touch.
 - If no match exists, a new contact is created.
+- If multiple name matches exist, knotter stages an archived contact and creates merge candidates.
 - `--retry-skipped` stops the import run when a header is skipped so you can retry after fixing config or un-archiving contacts.
 - If UIDVALIDITY changes and the mailbox contains messages without Message-ID, import will skip the resync (and not update state) to avoid duplicate touches. Use `--force-uidvalidity-resync` to override.
 

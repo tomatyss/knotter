@@ -48,3 +48,4 @@ macro_rules! id_type {
 id_type!(ContactId);
 id_type!(InteractionId);
 id_type!(TagId);
+id_type!(MergeCandidateId);

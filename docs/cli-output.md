@@ -138,6 +138,7 @@ Output: JSON object matching `ImportReport`:
 - `created` (number)
 - `updated` (number)
 - `skipped` (number)
+- `merge_candidates_created` (number)
 - `warnings` (array of strings)
 - `dry_run` (boolean)
 
@@ -150,9 +151,25 @@ Output: JSON object matching `EmailImportReport`:
 - `accounts`, `mailboxes`
 - `messages_seen`, `messages_imported`
 - `contacts_created`, `contacts_merged`, `contacts_matched`
+- `merge_candidates_created`
 - `touches_recorded`
 - `warnings` (array of strings)
 - `dry_run` (boolean)
+
+### `knotter merge`
+
+Manual merge workflow for contact following and deduplication.
+
+- `knotter merge list --json` returns an array of merge candidates:
+  - `id`, `created_at`, `status`, `reason`, `source`, `preferred_contact_id`, `resolved_at`
+  - `contact_a`, `contact_b` objects with `id`, `display_name`, `email`, `archived_at`, `updated_at`
+- `knotter merge show <id> --json` returns a single merge candidate object (same shape as list items).
+- `knotter merge apply <id> --json` returns the merged `Contact` object.
+- `knotter merge dismiss <id> --json` returns the merge candidate object after dismissal.
+- `knotter merge contacts <primary> <secondary> --json` returns the merged `Contact` object.
+
+Defaults: merges prefer the chosen primary contact for most fields, pick the earliest
+`next_touchpoint_at`, and keep the contact active if either side is active.
 
 ### `knotter export vcf/ics --json`
 

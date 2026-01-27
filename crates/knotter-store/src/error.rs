@@ -28,6 +28,8 @@ pub enum StoreError {
     InvalidFilter(String),
     #[error("duplicate email: {0}")]
     DuplicateEmail(String),
+    #[error("invalid merge: {0}")]
+    InvalidMerge(String),
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;
@@ -46,6 +48,7 @@ pub enum StoreErrorKind {
     InvalidInteractionKind,
     InvalidFilter,
     DuplicateEmail,
+    InvalidMerge,
 }
 
 impl StoreError {
@@ -63,6 +66,7 @@ impl StoreError {
             StoreError::InvalidInteractionKind(_) => StoreErrorKind::InvalidInteractionKind,
             StoreError::InvalidFilter(_) => StoreErrorKind::InvalidFilter,
             StoreError::DuplicateEmail(_) => StoreErrorKind::DuplicateEmail,
+            StoreError::InvalidMerge(_) => StoreErrorKind::InvalidMerge,
         }
     }
 }

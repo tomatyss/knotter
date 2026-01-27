@@ -8,6 +8,7 @@ pub struct ImportReport {
     pub created: usize,
     pub updated: usize,
     pub skipped: usize,
+    pub merge_candidates_created: usize,
     pub warnings: Vec<String>,
     pub dry_run: bool,
 }

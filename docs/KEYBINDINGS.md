@@ -7,6 +7,7 @@ knotter’s TUI is built around an explicit **mode/state machine**:
 - `Mode::List`
 - `Mode::FilterEditing`
 - `Mode::Detail(ContactId)`
+- `Mode::MergeList`
 - `Mode::ModalAddContact`
 - `Mode::ModalEditContact(ContactId)`
 - `Mode::ModalAddNote(ContactId)`
@@ -119,6 +120,8 @@ This is the default view: a scrollable contact list, with due indicators and tag
   Archive/unarchive selected contact (confirm required).
 - `v`  
   Toggle showing archived contacts in the list.
+- `m`  
+  Open merge candidate list (`Mode::MergeList`).
 
 ### Optional (only if implemented)
 - `d`  
@@ -177,10 +180,35 @@ The detail view shows:
   Schedule next touchpoint (`Mode::ModalSchedule`).
 - `x`  
   Clear schedule (confirm).
+- `m`  
+  Open merge candidate list (`Mode::MergeList`).
 
 ### Optional
 - `d` delete contact (confirm)
 - `D` delete selected interaction (confirm) if interaction deletion exists
+
+---
+
+## Mode: Merge list (`Mode::MergeList`)
+
+Shows open merge candidates created during import/sync.
+
+### Navigation
+- `↑`/`↓`, `j`/`k` move selection
+- `PageUp`/`PageDown` scroll
+- `g`/`G` jump top/bottom
+
+### Actions
+- `Enter`  
+  Merge selected candidate (confirm required).
+- `p`  
+  Toggle which contact is preferred for merge.
+- `d`  
+  Dismiss selected candidate (confirm required).
+- `r`  
+  Refresh merge list.
+- `Esc`  
+  Return to contact list.
 
 ---
 
@@ -322,11 +350,13 @@ Optional quick picks (if implemented):
 knotter should display mode-appropriate hints such as:
 
 - List:
-  - `Enter: Detail  /: Filter  a: Add  e: Edit  n: Note  t: Tags  s: Schedule  q: Quit`
+  - `Enter: Detail  /: Filter  a: Add  e: Edit  n: Note  t: Tags  s: Schedule  m: Merges  q: Quit`
 - Detail:
-  - `Esc: Back  n: Note  t: Tags  s: Schedule  e: Edit`
+  - `Esc: Back  n: Note  t: Tags  s: Schedule  e: Edit  m: Merges`
 - Filter:
   - `Enter: Apply  Esc: Cancel`
+- Merge:
+  - `Enter: Merge  p: Prefer  d: Dismiss  r: Refresh  Esc: Back`
 - Modals:
   - `Tab: Next  Shift+Tab: Prev  Enter: Activate  Esc: Cancel`
 

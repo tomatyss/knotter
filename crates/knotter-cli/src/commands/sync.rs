@@ -243,6 +243,7 @@ struct EmailImportReport {
     contacts_created: usize,
     contacts_merged: usize,
     contacts_matched: usize,
+    merge_candidates_created: usize,
     touches_recorded: usize,
     warnings: Vec<String>,
     dry_run: bool,
@@ -332,6 +333,7 @@ pub fn import_email(ctx: &Context<'_>, args: ImportEmailArgs) -> Result<()> {
         contacts_created: 0,
         contacts_merged: 0,
         contacts_matched: 0,
+        merge_candidates_created: 0,
         touches_recorded: 0,
         warnings: Vec::new(),
         dry_run: args.common.dry_run,
@@ -538,8 +540,12 @@ pub fn import_email(ctx: &Context<'_>, args: ImportEmailArgs) -> Result<()> {
         print_json(&report)?;
     } else {
         println!(
-            "email import: {} account(s), {} mailbox(es), {} message(s), {} touch(es)",
-            report.accounts, report.mailboxes, report.messages_seen, report.touches_recorded
+            "email import: {} account(s), {} mailbox(es), {} message(s), {} touch(es), {} merge candidate(s)",
+            report.accounts,
+            report.mailboxes,
+            report.messages_seen,
+            report.touches_recorded,
+            report.merge_candidates_created
         );
         if !report.warnings.is_empty() {
             println!("warnings:");
@@ -867,12 +873,13 @@ fn import_from_vcf_data(
     options: ImportOptions,
 ) -> Result<()> {
     let parsed = vcf::parse_vcf(&data)?;
-    let report = import_contacts(ctx, parsed, options)?;
+    let report = import_contacts(ctx, source_name, parsed, options)?;
     emit_import_report(ctx, source_name, report)
 }
 
 fn import_contacts(
     ctx: &Context<'_>,
+    source_name: &str,
     parsed: vcf::ParsedVcf,
     options: ImportOptions,
 ) -> Result<vcf::ImportReport> {
@@ -880,6 +887,7 @@ fn import_contacts(
         created: 0,
         updated: 0,
         skipped: parsed.skipped,
+        merge_candidates_created: 0,
         warnings: parsed.warnings,
         dry_run: options.dry_run,
     };
@@ -905,9 +913,20 @@ fn import_contacts(
 
     for contact in contacts {
         let contact = apply_extra_tags(contact, &options.extra_tags);
-        match apply_vcf_contact(ctx, now, contact, mode) {
+        match apply_vcf_contact(ctx, source_name, now, contact, mode) {
             Ok(ImportOutcome::Created) => report.created += 1,
             Ok(ImportOutcome::Updated) => report.updated += 1,
+            Ok(ImportOutcome::Staged {
+                candidates_created,
+                warning,
+                contact_created,
+            }) => {
+                if contact_created {
+                    report.created += 1;
+                }
+                report.merge_candidates_created += candidates_created;
+                report.warnings.push(warning);
+            }
             Ok(ImportOutcome::Skipped(warning)) => {
                 report.skipped += 1;
                 report.warnings.push(warning);
@@ -946,8 +965,13 @@ fn emit_import_report(
 
     let suffix = if report.dry_run { " (dry run)" } else { "" };
     println!(
-        "Imported {} contacts{}: created {}, updated {}, skipped {}",
-        source_name, suffix, report.created, report.updated, report.skipped
+        "Imported {} contacts{}: created {}, updated {}, skipped {}, merge candidates {}",
+        source_name,
+        suffix,
+        report.created,
+        report.updated,
+        report.skipped,
+        report.merge_candidates_created
     );
     if report.dry_run {
         println!("Dry run: no changes were applied.");
@@ -1048,7 +1072,13 @@ fn handle_email_header(
             .contacts()
             .get(contact_id)?
             .ok_or_else(|| not_found("contact not found"))?;
-        if contact.archived_at.is_some() {
+        if contact.archived_at.is_some()
+            && !email_ctx
+                .ctx
+                .store
+                .merge_candidates()
+                .has_open_for_contact(contact_id)?
+        {
             report
                 .warnings
                 .push(format!("email {email} belongs to archived contact"));
@@ -1098,9 +1128,19 @@ fn handle_email_header(
                 Ok(_) => {}
                 Err(err) => {
                     if err.kind() == StoreErrorKind::DuplicateEmail {
-                        report
-                            .warnings
-                            .push(format!("email {email} already belongs to another contact"));
+                        if let Some(owner_id) =
+                            handle_duplicate_email_match(email_ctx, report, contact.id, &email)?
+                        {
+                            report.contacts_matched += 1;
+                            if !email_ctx.options.dry_run {
+                                merge_tags(
+                                    email_ctx.ctx,
+                                    &owner_id,
+                                    email_ctx.options.extra_tags.clone(),
+                                )?;
+                            }
+                            return Ok(Some(owner_id));
+                        }
                         return Ok(None);
                     }
                     return Err(err.into());
@@ -1121,10 +1161,13 @@ fn handle_email_header(
             return Ok(None);
         }
         if active_matches.len() > 1 {
-            report
-                .warnings
-                .push(format!("email {email} matches multiple contacts by name"));
-            return Ok(None);
+            return stage_email_merge_candidates(
+                email_ctx,
+                report,
+                email,
+                display_name,
+                active_matches,
+            );
         }
     }
 
@@ -1155,6 +1198,69 @@ fn handle_email_header(
         Some(email_ctx.account_name),
         true,
     )?;
+    Ok(Some(created.id))
+}
+
+fn stage_email_merge_candidates(
+    email_ctx: &EmailImportContext<'_>,
+    report: &mut EmailImportReport,
+    email: String,
+    display_name: String,
+    matches: Vec<Contact>,
+) -> Result<Option<ContactId>> {
+    if email_ctx.options.dry_run {
+        report.contacts_created += 1;
+        report.merge_candidates_created += matches.len();
+        report.warnings.push(format!(
+            "email {email} matches multiple contacts by name; dry-run would stage contact"
+        ));
+        return Ok(None);
+    }
+
+    let new_contact = ContactNew {
+        display_name,
+        email: Some(email.clone()),
+        phone: None,
+        handle: None,
+        timezone: None,
+        next_touchpoint_at: None,
+        cadence_days: None,
+        archived_at: Some(email_ctx.now_utc),
+    };
+    let tx = email_ctx.ctx.store.connection().unchecked_transaction()?;
+    let created = knotter_store::repo::ContactsRepo::new(&tx).create_with_emails_and_tags(
+        email_ctx.now_utc,
+        new_contact,
+        email_ctx.options.extra_tags.clone(),
+        vec![email.clone()],
+        Some(email_ctx.account_name),
+    )?;
+
+    let mut candidates_created = 0;
+    for existing in matches {
+        let result = knotter_store::repo::MergeCandidatesRepo::new(&tx).create(
+            email_ctx.now_utc,
+            created.id,
+            existing.id,
+            knotter_store::repo::MergeCandidateCreate {
+                reason: "email-name-ambiguous".to_string(),
+                source: Some(email_ctx.account_name.to_string()),
+                preferred_contact_id: Some(existing.id),
+            },
+        )?;
+        if result.created {
+            candidates_created += 1;
+        }
+    }
+    tx.commit()?;
+
+    report.contacts_created += 1;
+    report.merge_candidates_created += candidates_created;
+    report.warnings.push(format!(
+        "email {email} matches multiple contacts by name; staged contact {} for merge",
+        created.id
+    ));
+
     Ok(Some(created.id))
 }
 
@@ -1276,6 +1382,11 @@ enum ImportOutcome {
     Created,
     Updated,
     Skipped(String),
+    Staged {
+        candidates_created: usize,
+        warning: String,
+        contact_created: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1295,43 +1406,68 @@ struct EmailImportContext<'a> {
 
 fn apply_vcf_contact(
     ctx: &Context<'_>,
+    source_name: &str,
     now_utc: i64,
     contact: vcf::VcfContact,
     mode: ImportMode,
 ) -> Result<ImportOutcome> {
-    let mut matched: Option<Contact> = None;
+    let mut matched_contacts: Vec<Contact> = Vec::new();
+    let mut active_matches: Vec<Contact> = Vec::new();
+    let mut archived_found = false;
+    let mut duplicate_email_matches = false;
     for email in &contact.emails {
         let matches = ctx.store.contacts().list_by_email(email)?;
         if matches.len() > 1 {
-            return Ok(ImportOutcome::Skipped(format!(
-                "multiple contacts share email {email}; skipping"
-            )));
+            duplicate_email_matches = true;
         }
-        if let Some(existing) = matches.first() {
+        for existing in matches {
             if existing.archived_at.is_some() {
-                return Ok(ImportOutcome::Skipped(format!(
-                    "email {email} belongs to archived contact {}; skipping",
-                    existing.id
-                )));
+                archived_found = true;
+            } else if !active_matches.iter().any(|c| c.id == existing.id) {
+                active_matches.push(existing.clone());
             }
-            if let Some(current) = matched.as_ref() {
-                if current.id != existing.id {
-                    return Ok(ImportOutcome::Skipped(
-                        "emails map to multiple contacts; skipping".to_string(),
-                    ));
-                }
-            } else {
-                matched = Some(existing.clone());
+            if !matched_contacts.iter().any(|c| c.id == existing.id) {
+                matched_contacts.push(existing);
             }
         }
     }
 
-    if let Some(existing) = matched {
+    if active_matches.is_empty() && archived_found && !contact.emails.is_empty() {
+        return Ok(ImportOutcome::Skipped(
+            "emails only match archived contacts; skipping".to_string(),
+        ));
+    }
+
+    if duplicate_email_matches || active_matches.len() > 1 {
+        return stage_merge_candidate(
+            ctx,
+            source_name,
+            now_utc,
+            contact,
+            matched_contacts,
+            mode,
+            "vcf-ambiguous-email",
+        );
+    }
+
+    if let Some(existing) = active_matches.first().cloned() {
         if matches!(mode, ImportMode::DryRun) {
             return Ok(ImportOutcome::Updated);
         }
 
-        let primary = contact.emails.first().cloned();
+        let mut filtered_emails = Vec::new();
+        for email in &contact.emails {
+            if filtered_emails.contains(email) {
+                continue;
+            }
+            if let Some(owner_id) = ctx.store.emails().find_contact_id_by_email(email)? {
+                if owner_id != existing.id {
+                    continue;
+                }
+            }
+            filtered_emails.push(email.clone());
+        }
+        let primary = filtered_emails.first().cloned();
         let update = ContactUpdate {
             display_name: Some(contact.display_name),
             email: primary.clone().map(Some),
@@ -1343,12 +1479,12 @@ fn apply_vcf_contact(
             cadence_days: contact.cadence_days.map(Some),
             archived_at: None,
         };
-        let email_ops = if contact.emails.is_empty() {
+        let email_ops = if filtered_emails.is_empty() {
             EmailOps::None
         } else {
             EmailOps::Mutate {
                 clear: false,
-                add: contact.emails.clone(),
+                add: filtered_emails,
                 remove: Vec::new(),
                 source: Some("vcf".to_string()),
             }
@@ -1386,6 +1522,153 @@ fn apply_vcf_contact(
     Ok(ImportOutcome::Created)
 }
 
+fn stage_merge_candidate(
+    ctx: &Context<'_>,
+    source_name: &str,
+    now_utc: i64,
+    contact: vcf::VcfContact,
+    matches: Vec<Contact>,
+    mode: ImportMode,
+    reason: &str,
+) -> Result<ImportOutcome> {
+    let vcf::VcfContact {
+        display_name,
+        emails,
+        phone,
+        tags,
+        next_touchpoint_at,
+        cadence_days,
+    } = contact;
+
+    let emails_repo = knotter_store::repo::EmailsRepo::new(ctx.store.connection());
+    let mut staged_emails = Vec::new();
+    for email in emails {
+        if staged_emails.contains(&email) {
+            continue;
+        }
+        if emails_repo.find_contact_id_by_email(&email)?.is_none() {
+            staged_emails.push(email);
+        }
+    }
+    let contact_created = !staged_emails.is_empty();
+
+    if matches!(mode, ImportMode::DryRun) {
+        let candidates_created = if contact_created {
+            matches.len()
+        } else {
+            matches.len().saturating_sub(1)
+        };
+        let warning = if contact_created {
+            format!(
+                "dry-run would stage a contact and create {} merge candidate(s)",
+                candidates_created
+            )
+        } else {
+            format!(
+                "dry-run would create {} merge candidate(s) between existing contacts",
+                candidates_created
+            )
+        };
+        return Ok(ImportOutcome::Staged {
+            candidates_created,
+            warning,
+            contact_created,
+        });
+    }
+
+    if !contact_created {
+        if matches.len() < 2 {
+            return Ok(ImportOutcome::Skipped(
+                "emails already belong to existing contacts; no merge candidates created"
+                    .to_string(),
+            ));
+        }
+        let preferred_id = matches
+            .iter()
+            .find(|contact| contact.archived_at.is_none())
+            .map(|contact| contact.id)
+            .unwrap_or(matches[0].id);
+        let tx = ctx.store.connection().unchecked_transaction()?;
+        let mut candidates_created = 0;
+        for existing in matches {
+            if existing.id == preferred_id {
+                continue;
+            }
+            let result = knotter_store::repo::MergeCandidatesRepo::new(&tx).create(
+                now_utc,
+                preferred_id,
+                existing.id,
+                knotter_store::repo::MergeCandidateCreate {
+                    reason: reason.to_string(),
+                    source: Some(source_name.to_string()),
+                    preferred_contact_id: Some(preferred_id),
+                },
+            )?;
+            if result.created {
+                candidates_created += 1;
+            }
+        }
+        tx.commit()?;
+        let warning = format!(
+            "emails already belong to existing contacts; {} merge candidate(s) created",
+            candidates_created
+        );
+        return Ok(ImportOutcome::Staged {
+            candidates_created,
+            warning,
+            contact_created: false,
+        });
+    }
+
+    let tx = ctx.store.connection().unchecked_transaction()?;
+    let primary = staged_emails.first().cloned();
+    let new_contact = ContactNew {
+        display_name,
+        email: primary,
+        phone,
+        handle: None,
+        timezone: None,
+        next_touchpoint_at,
+        cadence_days,
+        archived_at: Some(now_utc),
+    };
+    let created = knotter_store::repo::ContactsRepo::new(&tx).create_with_emails_and_tags(
+        now_utc,
+        new_contact,
+        tags,
+        staged_emails,
+        Some("vcf"),
+    )?;
+
+    let mut candidates_created = 0;
+    for existing in matches {
+        let result = knotter_store::repo::MergeCandidatesRepo::new(&tx).create(
+            now_utc,
+            created.id,
+            existing.id,
+            knotter_store::repo::MergeCandidateCreate {
+                reason: reason.to_string(),
+                source: Some(source_name.to_string()),
+                preferred_contact_id: Some(existing.id),
+            },
+        )?;
+        if result.created {
+            candidates_created += 1;
+        }
+    }
+    tx.commit()?;
+
+    let warning = format!(
+        "staged contact {} for merge; {} candidate(s) created",
+        created.id, candidates_created
+    );
+    Ok(ImportOutcome::Staged {
+        candidates_created,
+        warning,
+        contact_created: true,
+    })
+}
+
 fn merge_tags(ctx: &Context<'_>, contact_id: &ContactId, incoming: Vec<TagName>) -> Result<()> {
     if incoming.is_empty() {
         return Ok(());
@@ -1407,6 +1690,46 @@ fn merge_tags(ctx: &Context<'_>, contact_id: &ContactId, incoming: Vec<TagName>)
     Ok(())
 }
 
+fn handle_duplicate_email_match(
+    email_ctx: &EmailImportContext<'_>,
+    report: &mut EmailImportReport,
+    contact_id: ContactId,
+    email: &str,
+) -> Result<Option<ContactId>> {
+    let mut created_candidates = 0;
+    let owner_id = email_ctx
+        .ctx
+        .store
+        .emails()
+        .find_contact_id_by_email(email)?;
+    if let Some(found_owner_id) = owner_id {
+        let result = email_ctx.ctx.store.merge_candidates().create(
+            email_ctx.now_utc,
+            contact_id,
+            found_owner_id,
+            knotter_store::repo::MergeCandidateCreate {
+                reason: "email-duplicate".to_string(),
+                source: Some(email_ctx.account_name.to_string()),
+                preferred_contact_id: Some(found_owner_id),
+            },
+        )?;
+        if result.created {
+            created_candidates = 1;
+            report.merge_candidates_created += 1;
+        }
+    }
+    if created_candidates == 0 {
+        report
+            .warnings
+            .push(format!("email {email} already belongs to another contact"));
+    } else {
+        report.warnings.push(format!(
+            "email {email} already belongs to another contact; merge candidate created"
+        ));
+    }
+    Ok(owner_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1417,12 +1740,13 @@ mod tests {
     use knotter_store::repo::ContactNew;
     use knotter_store::Store;
     use knotter_sync::email::{EmailAddress, EmailHeader};
+    use knotter_sync::vcf;
     use std::cell::{Cell, RefCell};
     use std::collections::HashSet;
     use tempfile::TempDir;
 
     #[test]
-    fn email_import_skips_ambiguous_name_matches() {
+    fn email_import_stages_ambiguous_name_matches() {
         let store = Store::open_in_memory().expect("open store");
         store.migrate().expect("migrate");
         let now = 1_700_000_000;
@@ -1489,19 +1813,458 @@ mod tests {
             contacts_created: 0,
             contacts_merged: 0,
             contacts_matched: 0,
+            merge_candidates_created: 0,
             touches_recorded: 0,
             warnings: Vec::new(),
             dry_run: false,
         };
 
         let result = handle_email_header(&email_ctx, &header, &mut report).expect("handle header");
-        assert!(result.is_none());
-        assert_eq!(report.contacts_created, 0);
+        let staged_id = result.expect("staged contact");
+        assert_eq!(report.contacts_created, 1);
         assert_eq!(report.contacts_merged, 0);
+        assert_eq!(report.merge_candidates_created, 2);
         assert!(report
             .warnings
             .iter()
-            .any(|warning| warning.contains("matches multiple contacts by name")));
+            .any(|warning| warning.contains("staged contact")));
+        let staged = store.contacts().get(staged_id).expect("fetch staged");
+        assert!(staged.expect("contact").archived_at.is_some());
+    }
+
+    #[test]
+    fn email_import_dry_run_reports_staged_counts() {
+        let store = Store::open_in_memory().expect("open store");
+        store.migrate().expect("migrate");
+        let now = 1_700_000_000;
+        for idx in 0..2 {
+            store
+                .contacts()
+                .create(
+                    now,
+                    ContactNew {
+                        display_name: "Ada".to_string(),
+                        email: Some(format!("ada{idx}@example.com")),
+                        phone: None,
+                        handle: None,
+                        timezone: None,
+                        next_touchpoint_at: None,
+                        cadence_days: None,
+                        archived_at: None,
+                    },
+                )
+                .expect("create contact");
+        }
+
+        let config = AppConfig::default();
+        let ctx = Context {
+            store: &store,
+            json: false,
+            config: &config,
+        };
+        let identities = std::collections::HashSet::from(["me@example.com".to_string()]);
+        let options = ImportOptions {
+            dry_run: true,
+            limit: None,
+            retry_skipped: false,
+            extra_tags: Vec::new(),
+        };
+        let email_ctx = EmailImportContext {
+            ctx: &ctx,
+            account_name: "test",
+            merge_policy: &EmailMergePolicy::NameOrEmail,
+            options: &options,
+            identities: &identities,
+            now_utc: now,
+        };
+        let header = EmailHeader {
+            mailbox: "INBOX".to_string(),
+            uid: 1,
+            message_id: None,
+            occurred_at: now,
+            from: vec![EmailAddress {
+                name: Some("Ada".to_string()),
+                email: "ada@example.com".to_string(),
+            }],
+            to: vec![EmailAddress {
+                name: None,
+                email: "me@example.com".to_string(),
+            }],
+            subject: None,
+        };
+        let mut report = EmailImportReport {
+            accounts: 0,
+            mailboxes: 0,
+            messages_seen: 0,
+            messages_imported: 0,
+            contacts_created: 0,
+            contacts_merged: 0,
+            contacts_matched: 0,
+            merge_candidates_created: 0,
+            touches_recorded: 0,
+            warnings: Vec::new(),
+            dry_run: true,
+        };
+
+        let result = handle_email_header(&email_ctx, &header, &mut report).expect("handle header");
+        assert!(result.is_none());
+        assert_eq!(report.contacts_created, 1);
+        assert_eq!(report.merge_candidates_created, 2);
+        assert!(report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("dry-run")));
+    }
+
+    #[test]
+    fn vcf_import_updates_active_even_with_archived_match() {
+        let store = Store::open_in_memory().expect("open store");
+        store.migrate().expect("migrate");
+        let now = 1_700_000_000;
+
+        let active = store
+            .contacts()
+            .create(
+                now,
+                ContactNew {
+                    display_name: "Active".to_string(),
+                    email: Some("active@example.com".to_string()),
+                    phone: None,
+                    handle: None,
+                    timezone: None,
+                    next_touchpoint_at: None,
+                    cadence_days: None,
+                    archived_at: None,
+                },
+            )
+            .expect("create active");
+        store
+            .contacts()
+            .create(
+                now,
+                ContactNew {
+                    display_name: "Archived".to_string(),
+                    email: Some("archived@example.com".to_string()),
+                    phone: None,
+                    handle: None,
+                    timezone: None,
+                    next_touchpoint_at: None,
+                    cadence_days: None,
+                    archived_at: Some(now),
+                },
+            )
+            .expect("create archived");
+
+        let config = AppConfig::default();
+        let ctx = Context {
+            store: &store,
+            json: false,
+            config: &config,
+        };
+        let contact = vcf::VcfContact {
+            display_name: "Updated".to_string(),
+            emails: vec![
+                "active@example.com".to_string(),
+                "archived@example.com".to_string(),
+            ],
+            phone: None,
+            tags: Vec::new(),
+            next_touchpoint_at: None,
+            cadence_days: None,
+        };
+
+        let outcome = apply_vcf_contact(&ctx, "test", now + 10, contact, ImportMode::Apply)
+            .expect("apply vcf");
+        assert!(matches!(outcome, ImportOutcome::Updated));
+
+        let updated = store
+            .contacts()
+            .get(active.id)
+            .expect("get active")
+            .expect("active exists");
+        assert_eq!(updated.display_name, "Updated");
+        let candidates = store
+            .merge_candidates()
+            .list(None)
+            .expect("list candidates");
+        assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn vcf_dry_run_reports_staged_counts() {
+        let store = Store::open_in_memory().expect("open store");
+        store.migrate().expect("migrate");
+        let now = 1_700_000_000;
+
+        store
+            .contacts()
+            .create(
+                now,
+                ContactNew {
+                    display_name: "Ada".to_string(),
+                    email: Some("ada@example.com".to_string()),
+                    phone: None,
+                    handle: None,
+                    timezone: None,
+                    next_touchpoint_at: None,
+                    cadence_days: None,
+                    archived_at: None,
+                },
+            )
+            .expect("create a");
+        store
+            .contacts()
+            .create(
+                now,
+                ContactNew {
+                    display_name: "Ada Two".to_string(),
+                    email: Some("ada2@example.com".to_string()),
+                    phone: None,
+                    handle: None,
+                    timezone: None,
+                    next_touchpoint_at: None,
+                    cadence_days: None,
+                    archived_at: None,
+                },
+            )
+            .expect("create b");
+
+        let config = AppConfig::default();
+        let ctx = Context {
+            store: &store,
+            json: false,
+            config: &config,
+        };
+        let contact = vcf::VcfContact {
+            display_name: "Ada".to_string(),
+            emails: vec![
+                "ada@example.com".to_string(),
+                "ada2@example.com".to_string(),
+            ],
+            phone: None,
+            tags: Vec::new(),
+            next_touchpoint_at: None,
+            cadence_days: None,
+        };
+
+        let outcome = apply_vcf_contact(&ctx, "test", now + 10, contact, ImportMode::DryRun)
+            .expect("apply vcf");
+        match outcome {
+            ImportOutcome::Staged {
+                candidates_created,
+                warning,
+                contact_created,
+            } => {
+                assert!(!contact_created);
+                assert_eq!(candidates_created, 1);
+                assert!(warning.contains("dry-run"));
+            }
+            _ => panic!("expected staged"),
+        }
+    }
+
+    #[test]
+    fn email_import_duplicate_email_creates_merge_candidate() {
+        let store = Store::open_in_memory().expect("open store");
+        store.migrate().expect("migrate");
+        let now = 1_700_000_000;
+
+        let contact = store
+            .contacts()
+            .create(
+                now,
+                ContactNew {
+                    display_name: "Ada".to_string(),
+                    email: Some("ada@example.com".to_string()),
+                    phone: None,
+                    handle: None,
+                    timezone: None,
+                    next_touchpoint_at: None,
+                    cadence_days: None,
+                    archived_at: None,
+                },
+            )
+            .expect("create contact");
+        let owner = store
+            .contacts()
+            .create(
+                now,
+                ContactNew {
+                    display_name: "Grace".to_string(),
+                    email: Some("dup@example.com".to_string()),
+                    phone: None,
+                    handle: None,
+                    timezone: None,
+                    next_touchpoint_at: None,
+                    cadence_days: None,
+                    archived_at: None,
+                },
+            )
+            .expect("create owner");
+
+        let config = AppConfig::default();
+        let ctx = Context {
+            store: &store,
+            json: false,
+            config: &config,
+        };
+        let identities = std::collections::HashSet::from(["me@example.com".to_string()]);
+        let options = ImportOptions {
+            dry_run: false,
+            limit: None,
+            retry_skipped: false,
+            extra_tags: Vec::new(),
+        };
+        let email_ctx = EmailImportContext {
+            ctx: &ctx,
+            account_name: "test",
+            merge_policy: &EmailMergePolicy::NameOrEmail,
+            options: &options,
+            identities: &identities,
+            now_utc: now,
+        };
+        let mut report = EmailImportReport {
+            accounts: 0,
+            mailboxes: 0,
+            messages_seen: 0,
+            messages_imported: 0,
+            contacts_created: 0,
+            contacts_merged: 0,
+            contacts_matched: 0,
+            merge_candidates_created: 0,
+            touches_recorded: 0,
+            warnings: Vec::new(),
+            dry_run: false,
+        };
+
+        handle_duplicate_email_match(&email_ctx, &mut report, contact.id, "dup@example.com")
+            .expect("handle duplicate");
+
+        assert_eq!(report.merge_candidates_created, 1);
+        assert!(report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("merge candidate created")));
+        let candidates = store
+            .merge_candidates()
+            .list(None)
+            .expect("list candidates");
+        assert_eq!(candidates.len(), 1);
+        let candidate = &candidates[0];
+        assert!(candidate.contact_a_id == contact.id || candidate.contact_b_id == contact.id);
+        assert!(candidate.contact_a_id == owner.id || candidate.contact_b_id == owner.id);
+        assert_eq!(candidate.preferred_contact_id, Some(owner.id));
+    }
+
+    #[test]
+    fn email_import_matches_archived_with_open_merge_candidate() {
+        let store = Store::open_in_memory().expect("open store");
+        store.migrate().expect("migrate");
+        let now = 1_700_000_000;
+
+        let archived = store
+            .contacts()
+            .create(
+                now,
+                ContactNew {
+                    display_name: "Staged".to_string(),
+                    email: Some("staged@example.com".to_string()),
+                    phone: None,
+                    handle: None,
+                    timezone: None,
+                    next_touchpoint_at: None,
+                    cadence_days: None,
+                    archived_at: Some(now),
+                },
+            )
+            .expect("create staged");
+        let other = store
+            .contacts()
+            .create(
+                now,
+                ContactNew {
+                    display_name: "Other".to_string(),
+                    email: Some("other@example.com".to_string()),
+                    phone: None,
+                    handle: None,
+                    timezone: None,
+                    next_touchpoint_at: None,
+                    cadence_days: None,
+                    archived_at: None,
+                },
+            )
+            .expect("create other");
+        store
+            .merge_candidates()
+            .create(
+                now,
+                archived.id,
+                other.id,
+                knotter_store::repo::MergeCandidateCreate {
+                    reason: "email-name-ambiguous".to_string(),
+                    source: Some("test".to_string()),
+                    preferred_contact_id: Some(other.id),
+                },
+            )
+            .expect("create candidate");
+
+        let config = AppConfig::default();
+        let ctx = Context {
+            store: &store,
+            json: false,
+            config: &config,
+        };
+        let identities = std::collections::HashSet::from(["me@example.com".to_string()]);
+        let options = ImportOptions {
+            dry_run: false,
+            limit: None,
+            retry_skipped: false,
+            extra_tags: Vec::new(),
+        };
+        let email_ctx = EmailImportContext {
+            ctx: &ctx,
+            account_name: "test",
+            merge_policy: &EmailMergePolicy::NameOrEmail,
+            options: &options,
+            identities: &identities,
+            now_utc: now,
+        };
+        let header = EmailHeader {
+            mailbox: "INBOX".to_string(),
+            uid: 1,
+            message_id: None,
+            occurred_at: now,
+            from: vec![EmailAddress {
+                name: Some("Staged".to_string()),
+                email: "staged@example.com".to_string(),
+            }],
+            to: vec![EmailAddress {
+                name: None,
+                email: "me@example.com".to_string(),
+            }],
+            subject: None,
+        };
+        let mut report = EmailImportReport {
+            accounts: 0,
+            mailboxes: 0,
+            messages_seen: 0,
+            messages_imported: 0,
+            contacts_created: 0,
+            contacts_merged: 0,
+            contacts_matched: 0,
+            merge_candidates_created: 0,
+            touches_recorded: 0,
+            warnings: Vec::new(),
+            dry_run: false,
+        };
+
+        let result = handle_email_header(&email_ctx, &header, &mut report).expect("handle header");
+        assert_eq!(result, Some(archived.id));
+        assert_eq!(report.contacts_matched, 1);
+        assert!(report
+            .warnings
+            .iter()
+            .all(|warning| !warning.contains("archived contact")));
     }
 
     #[derive(Default)]
