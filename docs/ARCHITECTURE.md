@@ -730,6 +730,87 @@ Config keys (MVP):
 * `loops.override_existing = true/false`
 * `[[loops.tags]]` with `tag`, `cadence_days`, optional `priority`
 
+Full config example (all sections + optional fields):
+
+```toml
+due_soon_days = 7
+default_cadence_days = 30
+
+[notifications]
+enabled = false
+backend = "stdout"
+
+[notifications.email]
+from = "Knotter <knotter@example.com>"
+to = ["you@example.com"]
+subject_prefix = "knotter reminders"
+smtp_host = "smtp.example.com"
+smtp_port = 587
+username = "user@example.com"
+password_env = "KNOTTER_SMTP_PASSWORD"
+tls = "start-tls"
+timeout_seconds = 20
+
+[interactions]
+auto_reschedule = false
+
+[loops]
+default_cadence_days = 180
+strategy = "shortest"
+schedule_missing = true
+anchor = "created-at"
+apply_on_tag_change = false
+override_existing = false
+
+[[loops.tags]]
+tag = "friend"
+cadence_days = 90
+
+[[loops.tags]]
+tag = "family"
+cadence_days = 30
+priority = 10
+
+[contacts]
+[[contacts.sources]]
+name = "gmail"
+type = "carddav"
+url = "https://example.test/carddav/addressbook/"
+username = "user@example.com"
+password_env = "KNOTTER_GMAIL_PASSWORD"
+tag = "gmail"
+
+[[contacts.sources]]
+name = "macos"
+type = "macos"
+group = "Friends"
+tag = "personal"
+
+[[contacts.email_accounts]]
+name = "gmail"
+host = "imap.gmail.com"
+port = 993
+username = "user@gmail.com"
+password_env = "KNOTTER_GMAIL_PASSWORD"
+mailboxes = ["INBOX", "[Gmail]/Sent Mail"]
+identities = ["user@gmail.com"]
+merge_policy = "name-or-email"
+tls = "tls"
+tag = "gmail"
+```
+
+Defaults and validation notes:
+
+* When `notifications.enabled = true`, `notifications.backend = "email"` requires a
+  `[notifications.email]` block and the `email-notify` feature.
+* When `notifications.enabled = true`, `notifications.backend = "desktop"` requires
+  the `desktop-notify` feature.
+* `notifications.email.username` and `notifications.email.password_env` must be set together.
+* CardDAV sources require `url` and `username`; `password_env` and `tag` are optional.
+* Email accounts default to `port = 993`, `mailboxes = ["INBOX"]`, and
+  `identities = [username]` when `username` is an email address.
+* Source/account names are normalized to lowercase and must be unique.
+
 Example loop policy:
 
 ```

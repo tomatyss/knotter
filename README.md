@@ -165,15 +165,15 @@ knotter reads an optional TOML config file from:
 
 Use `--config /path/to/config.toml` to override the location.
 
-Example:
+Full example (all sections + optional fields):
 
-```
+```toml
 due_soon_days = 7
 default_cadence_days = 30
 
 [notifications]
 enabled = false
-backend = "stdout" # or "desktop" or "email"
+backend = "stdout" # stdout | desktop | email
 
 [notifications.email]
 from = "Knotter <knotter@example.com>"
@@ -187,13 +187,11 @@ tls = "start-tls" # start-tls | tls | none
 timeout_seconds = 20
 
 [interactions]
-# Auto-reschedule after adding interactions (requires cadence_days on the contact)
 auto_reschedule = false
 
 [loops]
-# Optional default when no tag matches (e.g., ~6 months)
 default_cadence_days = 180
-strategy = "shortest" # or "priority"
+strategy = "shortest" # shortest | priority
 schedule_missing = true
 anchor = "created-at" # now | created-at | last-interaction
 apply_on_tag_change = false
@@ -206,13 +204,8 @@ cadence_days = 90
 [[loops.tags]]
 tag = "family"
 cadence_days = 30
-```
+priority = 10
 
-On Unix, the config file must be user-readable only (`chmod 600`).
-
-Contact source profiles can also live in config (see `docs/ARCHITECTURE.md`):
-
-```
 [contacts]
 [[contacts.sources]]
 name = "gmail"
@@ -221,12 +214,13 @@ url = "https://example.test/carddav/addressbook/"
 username = "user@example.com"
 password_env = "KNOTTER_GMAIL_PASSWORD"
 tag = "gmail"
-```
 
-Email account sync profiles:
+[[contacts.sources]]
+name = "macos"
+type = "macos"
+group = "Friends"
+tag = "personal"
 
-```
-[contacts]
 [[contacts.email_accounts]]
 name = "gmail"
 host = "imap.gmail.com"
@@ -234,9 +228,23 @@ port = 993
 username = "user@gmail.com"
 password_env = "KNOTTER_GMAIL_PASSWORD"
 mailboxes = ["INBOX", "[Gmail]/Sent Mail"]
-merge_policy = "name-or-email"
+identities = ["user@gmail.com"]
+merge_policy = "name-or-email" # name-or-email | email-only
+tls = "tls" # tls | start-tls | none
 tag = "gmail"
 ```
+
+Notes:
+
+- On Unix, the config file must be user-readable only (`chmod 600`).
+- When `notifications.enabled = true`, `notifications.backend = "email"` requires
+  the `email-notify` feature and a `[notifications.email]` block.
+- When `notifications.enabled = true`, `notifications.backend = "desktop"` requires
+  the `desktop-notify` feature.
+- CardDAV sources require `url` and `username`; `password_env` can be omitted if
+  you pass `--password-env` or `--password-stdin` at runtime.
+- Email accounts default to `port = 993`, `mailboxes = ["INBOX"]`, and
+  `identities = [username]` when the username is an email address.
 
 ## Data location
 
