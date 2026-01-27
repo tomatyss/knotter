@@ -75,6 +75,7 @@ fn store_exit_code(err: &StoreError) -> u8 {
         | StoreErrorKind::InvalidInteractionKind
         | StoreErrorKind::InvalidDataPath
         | StoreErrorKind::DuplicateEmail
+        | StoreErrorKind::InvalidMerge
         | StoreErrorKind::Core => EXIT_INVALID_INPUT,
         StoreErrorKind::MissingHomeDir
         | StoreErrorKind::Migration

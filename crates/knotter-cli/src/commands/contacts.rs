@@ -425,7 +425,7 @@ pub fn list_contacts(ctx: &Context<'_>, args: ListArgs) -> Result<()> {
 
 pub fn delete_contact(ctx: &Context<'_>, args: DeleteArgs) -> Result<()> {
     let id = parse_contact_id(&args.id)?;
-    ctx.store.contacts().delete(id)?;
+    ctx.store.contacts().delete(now_utc(), id)?;
     if ctx.json {
         print_json(&serde_json::json!({ "id": id }))?;
     } else {

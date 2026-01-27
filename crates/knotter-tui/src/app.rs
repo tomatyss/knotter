@@ -14,6 +14,7 @@ pub enum Mode {
     List,
     FilterEditing,
     Detail(ContactId),
+    MergeList,
     ModalAddContact(ContactForm),
     ModalEditContact(ContactForm),
     ModalAddNote(NoteForm),
@@ -41,8 +42,21 @@ pub struct App {
     pub auto_reschedule_interactions: bool,
     pub show_archived: bool,
     pub empty_hint: &'static str,
+    pub merge_candidates: Vec<MergeCandidateView>,
+    pub merge_selected: usize,
     actions: VecDeque<Action>,
     pub(crate) pending_select: Option<ContactId>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MergeCandidateView {
+    pub id: knotter_core::domain::MergeCandidateId,
+    pub reason: String,
+    pub contact_a_id: ContactId,
+    pub contact_b_id: ContactId,
+    pub preferred_contact_id: Option<ContactId>,
+    pub contact_a_name: String,
+    pub contact_b_name: String,
 }
 
 impl App {
@@ -69,6 +83,8 @@ impl App {
             auto_reschedule_interactions,
             show_archived: false,
             empty_hint: LIST_EMPTY,
+            merge_candidates: Vec::new(),
+            merge_selected: 0,
             actions: VecDeque::new(),
             pending_select: None,
         };
@@ -115,6 +131,13 @@ impl App {
     pub fn apply_detail(&mut self, detail: knotter_core::dto::ContactDetailDto) {
         self.detail_scroll = 0;
         self.detail = Some(detail);
+    }
+
+    pub fn apply_merge_candidates(&mut self, items: Vec<MergeCandidateView>) {
+        self.merge_candidates = items;
+        if self.merge_selected >= self.merge_candidates.len() {
+            self.merge_selected = self.merge_candidates.len().saturating_sub(1);
+        }
     }
 
     pub fn empty_hint(&self) -> String {
@@ -169,6 +192,11 @@ impl App {
             }
             Mode::Detail(contact_id) => {
                 if let Some(next) = self.handle_detail_key(key, *contact_id) {
+                    mode = next;
+                }
+            }
+            Mode::MergeList => {
+                if let Some(next) = self.handle_merge_list_key(key) {
                     mode = next;
                 }
             }
@@ -293,6 +321,10 @@ impl App {
                     return Some(Mode::Confirm(ConfirmState::new(message, action)));
                 }
             }
+            KeyCode::Char('m') => {
+                self.enqueue(Action::LoadMerges);
+                return Some(Mode::MergeList);
+            }
             KeyCode::Char('r') => self.enqueue(Action::LoadList),
             _ => {}
         }
@@ -387,9 +419,87 @@ impl App {
                     return Some(Mode::Confirm(ConfirmState::new(message, action)));
                 }
             }
+            KeyCode::Char('m') => {
+                self.enqueue(Action::LoadMerges);
+                return Some(Mode::MergeList);
+            }
             KeyCode::Char('r') => {
                 self.enqueue(Action::LoadDetail(contact_id));
             }
+            _ => {}
+        }
+        None
+    }
+
+    fn handle_merge_list_key(&mut self, key: KeyEvent) -> Option<Mode> {
+        match key.code {
+            KeyCode::Esc => return Some(Mode::List),
+            KeyCode::Down | KeyCode::Char('j') => self.move_merge_selection(1),
+            KeyCode::Up | KeyCode::Char('k') => self.move_merge_selection(-1),
+            KeyCode::PageDown => self.move_merge_selection(5),
+            KeyCode::PageUp => self.move_merge_selection(-5),
+            KeyCode::Home | KeyCode::Char('g') => self.merge_selected = 0,
+            KeyCode::End | KeyCode::Char('G') => {
+                if !self.merge_candidates.is_empty() {
+                    self.merge_selected = self.merge_candidates.len() - 1;
+                }
+            }
+            KeyCode::Char('p') => {
+                if let Some(candidate) = self.merge_candidates.get(self.merge_selected) {
+                    let current = candidate
+                        .preferred_contact_id
+                        .unwrap_or(candidate.contact_a_id);
+                    let preferred_contact_id = if current == candidate.contact_a_id {
+                        candidate.contact_b_id
+                    } else {
+                        candidate.contact_a_id
+                    };
+                    self.enqueue(Action::SetMergePreferred {
+                        candidate_id: candidate.id,
+                        preferred_contact_id,
+                    });
+                }
+            }
+            KeyCode::Char('d') => {
+                if let Some(candidate) = self.merge_candidates.get(self.merge_selected) {
+                    let message = format!("Dismiss merge candidate {}? (y/n)", candidate.id);
+                    return Some(Mode::Confirm(ConfirmState::new(
+                        message,
+                        ConfirmAction::DismissMerge(candidate.id),
+                    )));
+                }
+            }
+            KeyCode::Enter => {
+                if let Some(candidate) = self.merge_candidates.get(self.merge_selected) {
+                    let primary_id = candidate
+                        .preferred_contact_id
+                        .unwrap_or(candidate.contact_a_id);
+                    let secondary_id = if primary_id == candidate.contact_a_id {
+                        candidate.contact_b_id
+                    } else {
+                        candidate.contact_a_id
+                    };
+                    let primary_name = if primary_id == candidate.contact_a_id {
+                        &candidate.contact_a_name
+                    } else {
+                        &candidate.contact_b_name
+                    };
+                    let secondary_name = if secondary_id == candidate.contact_a_id {
+                        &candidate.contact_a_name
+                    } else {
+                        &candidate.contact_b_name
+                    };
+                    let message = format!("Merge {} into {}? (y/n)", secondary_name, primary_name);
+                    return Some(Mode::Confirm(ConfirmState::new(
+                        message,
+                        ConfirmAction::ApplyMerge {
+                            primary_id,
+                            secondary_id,
+                        },
+                    )));
+                }
+            }
+            KeyCode::Char('r') => self.enqueue(Action::LoadMerges),
             _ => {}
         }
         None
@@ -548,10 +658,22 @@ impl App {
                 if let Some(action) = state.to_action() {
                     self.enqueue(action);
                 }
-                return Some(Mode::List);
+                let return_mode = match state.action {
+                    ConfirmAction::ApplyMerge { .. } | ConfirmAction::DismissMerge(_) => {
+                        Mode::MergeList
+                    }
+                    _ => Mode::List,
+                };
+                return Some(return_mode);
             }
             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-                return Some(Mode::List);
+                let return_mode = match state.action {
+                    ConfirmAction::ApplyMerge { .. } | ConfirmAction::DismissMerge(_) => {
+                        Mode::MergeList
+                    }
+                    _ => Mode::List,
+                };
+                return Some(return_mode);
             }
             _ => {}
         }
@@ -572,6 +694,22 @@ impl App {
             next = len - 1;
         }
         self.selected = next as usize;
+    }
+
+    fn move_merge_selection(&mut self, delta: i32) {
+        if self.merge_candidates.is_empty() {
+            self.merge_selected = 0;
+            return;
+        }
+        let len = self.merge_candidates.len() as i32;
+        let mut next = self.merge_selected as i32 + delta;
+        if next < 0 {
+            next = 0;
+        }
+        if next >= len {
+            next = len - 1;
+        }
+        self.merge_selected = next as usize;
     }
 
     fn detail_for_selected(&self) -> Option<knotter_core::dto::ContactDetailDto> {
@@ -1089,6 +1227,11 @@ pub enum ConfirmAction {
     ClearSchedule(ContactId),
     ArchiveContact(ContactId),
     UnarchiveContact(ContactId),
+    ApplyMerge {
+        primary_id: ContactId,
+        secondary_id: ContactId,
+    },
+    DismissMerge(knotter_core::domain::MergeCandidateId),
 }
 
 #[derive(Debug, Clone)]
@@ -1107,6 +1250,14 @@ impl ConfirmState {
             ConfirmAction::ClearSchedule(id) => Some(Action::ClearSchedule(id)),
             ConfirmAction::ArchiveContact(id) => Some(Action::ArchiveContact(id)),
             ConfirmAction::UnarchiveContact(id) => Some(Action::UnarchiveContact(id)),
+            ConfirmAction::ApplyMerge {
+                primary_id,
+                secondary_id,
+            } => Some(Action::ApplyMerge {
+                primary_id,
+                secondary_id,
+            }),
+            ConfirmAction::DismissMerge(id) => Some(Action::DismissMerge(id)),
         }
     }
 }

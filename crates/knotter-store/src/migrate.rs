@@ -19,6 +19,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "005_email_message_id_normalize.sql",
         include_str!("../migrations/005_email_message_id_normalize.sql"),
     ),
+    (
+        "006_contact_merge_candidates.sql",
+        include_str!("../migrations/006_contact_merge_candidates.sql"),
+    ),
 ];
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {

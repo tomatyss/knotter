@@ -5,6 +5,7 @@ use knotter_core::domain::InteractionKind;
 use knotter_core::rules::{schedule_next, MAX_SOON_DAYS};
 use knotter_core::time::parse_local_timestamp;
 use knotter_store::repo::ContactUpdate;
+use knotter_store::repo::MergeCandidateCreate;
 use knotter_store::Store;
 use serde_json::Value;
 use std::path::Path;
@@ -97,6 +98,206 @@ fn run_cmd_json_with_config(db_path: &Path, config_path: &Path, args: &[&str]) -
         .expect("run command");
     assert!(output.status.success(), "command failed: {:?}", output);
     serde_json::from_slice(&output.stdout).expect("parse json")
+}
+
+#[test]
+fn cli_merge_contacts_merges_records() {
+    let dir = TempDir::new().expect("temp dir");
+    let db_path = dir.path().join("knotter.sqlite3");
+    let store = Store::open(&db_path).expect("open store");
+    store.migrate().expect("migrate");
+    let now = 1_700_000_000;
+
+    let primary = store
+        .contacts()
+        .create(
+            now,
+            knotter_store::repo::ContactNew {
+                display_name: "Ada".to_string(),
+                email: Some("ada@example.com".to_string()),
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create primary");
+
+    let secondary = store
+        .contacts()
+        .create(
+            now,
+            knotter_store::repo::ContactNew {
+                display_name: "Ada L".to_string(),
+                email: Some("ada@work.test".to_string()),
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create secondary");
+
+    let merged = run_cmd_json(
+        &db_path,
+        &[
+            "merge",
+            "contacts",
+            &primary.id.to_string(),
+            &secondary.id.to_string(),
+        ],
+    );
+
+    assert_eq!(merged["id"], primary.id.to_string());
+    assert!(store
+        .contacts()
+        .get(secondary.id)
+        .expect("get secondary")
+        .is_none());
+}
+
+#[test]
+fn cli_merge_list_outputs_candidates() {
+    let dir = TempDir::new().expect("temp dir");
+    let db_path = dir.path().join("knotter.sqlite3");
+    let store = Store::open(&db_path).expect("open store");
+    store.migrate().expect("migrate");
+    let now = 1_700_000_000;
+
+    let contact_a = store
+        .contacts()
+        .create(
+            now,
+            knotter_store::repo::ContactNew {
+                display_name: "Ada".to_string(),
+                email: Some("ada@example.com".to_string()),
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create contact a");
+
+    let contact_b = store
+        .contacts()
+        .create(
+            now,
+            knotter_store::repo::ContactNew {
+                display_name: "Ada L".to_string(),
+                email: Some("ada@work.test".to_string()),
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create contact b");
+
+    store
+        .merge_candidates()
+        .create(
+            now,
+            contact_a.id,
+            contact_b.id,
+            MergeCandidateCreate {
+                reason: "test".to_string(),
+                source: Some("cli".to_string()),
+                preferred_contact_id: Some(contact_a.id),
+            },
+        )
+        .expect("create candidate");
+
+    let value = run_cmd_json(&db_path, &["merge", "list"]);
+    let array = value.as_array().expect("array");
+    assert_eq!(array.len(), 1);
+}
+
+#[test]
+fn cli_merge_apply_merges_candidate() {
+    let dir = TempDir::new().expect("temp dir");
+    let db_path = dir.path().join("knotter.sqlite3");
+    let store = Store::open(&db_path).expect("open store");
+    store.migrate().expect("migrate");
+    let now = 1_700_000_000;
+
+    let primary = store
+        .contacts()
+        .create(
+            now,
+            knotter_store::repo::ContactNew {
+                display_name: "Ada".to_string(),
+                email: Some("ada@example.com".to_string()),
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create primary");
+
+    let secondary = store
+        .contacts()
+        .create(
+            now,
+            knotter_store::repo::ContactNew {
+                display_name: "Ada L".to_string(),
+                email: Some("ada@work.test".to_string()),
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create secondary");
+
+    let created = store
+        .merge_candidates()
+        .create(
+            now,
+            primary.id,
+            secondary.id,
+            MergeCandidateCreate {
+                reason: "test".to_string(),
+                source: None,
+                preferred_contact_id: Some(primary.id),
+            },
+        )
+        .expect("create candidate");
+
+    let merged = run_cmd_json(
+        &db_path,
+        &["merge", "apply", &created.candidate.id.to_string()],
+    );
+    assert_eq!(merged["id"], primary.id.to_string());
+
+    let store = Store::open(&db_path).expect("open store");
+    let candidate = store
+        .merge_candidates()
+        .get(created.candidate.id)
+        .expect("get candidate")
+        .expect("missing candidate");
+    assert_eq!(
+        candidate.status,
+        knotter_store::repo::MergeCandidateStatus::Merged
+    );
+    assert!(store
+        .contacts()
+        .get(secondary.id)
+        .expect("get secondary")
+        .is_none());
 }
 
 fn restrict_config_permissions(path: &Path) {
@@ -507,6 +708,68 @@ fn cli_import_vcf_creates_contact() {
     let items = list.as_array().expect("array");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["display_name"], "Grace Hopper");
+}
+
+#[test]
+fn cli_import_vcf_updates_when_emails_match_active_and_archived() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let vcf_path = temp.path().join("contacts.vcf");
+    let store = Store::open(&db_path).expect("open store");
+    store.migrate().expect("migrate");
+    let now = 1_700_000_000;
+
+    store
+        .contacts()
+        .create(
+            now,
+            knotter_store::repo::ContactNew {
+                display_name: "Active".to_string(),
+                email: Some("active@example.com".to_string()),
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create active");
+    store
+        .contacts()
+        .create(
+            now,
+            knotter_store::repo::ContactNew {
+                display_name: "Archived".to_string(),
+                email: Some("archived@example.com".to_string()),
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: Some(now),
+            },
+        )
+        .expect("create archived");
+
+    let vcf = "BEGIN:VCARD\nVERSION:3.0\nFN:Mixed\nEMAIL:active@example.com\nEMAIL:archived@example.com\nEND:VCARD\n";
+    std::fs::write(&vcf_path, vcf).expect("write vcf");
+
+    let report = run_cmd_json(
+        &db_path,
+        &["import", "vcf", vcf_path.to_str().expect("path")],
+    );
+    assert_eq!(report["created"], 0);
+    assert_eq!(report["updated"], 1);
+    assert_eq!(report["skipped"], 0);
+    assert_eq!(report["merge_candidates_created"], 0);
+
+    let store = Store::open(&db_path).expect("open store");
+    let candidates = store
+        .merge_candidates()
+        .list(None)
+        .expect("list candidates");
+    assert!(candidates.is_empty());
 }
 
 #[test]

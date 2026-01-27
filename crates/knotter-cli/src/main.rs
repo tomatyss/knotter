@@ -10,7 +10,8 @@ use std::process::ExitCode;
 use tracing::debug;
 
 use crate::commands::{
-    backup, completions, contacts, interactions, loops, remind, schedule, sync, tags, tui, Context,
+    backup, completions, contacts, interactions, loops, merge, remind, schedule, sync, tags, tui,
+    Context,
 };
 use crate::error::{exit_code_for, report_error};
 use knotter_config as config;
@@ -51,6 +52,8 @@ enum Command {
     Tag(tags::TagCommand),
     #[command(subcommand)]
     Loops(loops::LoopCommand),
+    #[command(subcommand)]
+    Merge(merge::MergeCommand),
     #[command(name = "add-note")]
     AddNote(interactions::AddNoteArgs),
     Touch(interactions::TouchArgs),
@@ -140,6 +143,13 @@ fn run(cli: Cli) -> Result<()> {
                 },
                 Command::Loops(cmd) => match cmd {
                     loops::LoopCommand::Apply(args) => loops::apply_loops(&ctx, args),
+                },
+                Command::Merge(cmd) => match cmd {
+                    merge::MergeCommand::List(args) => merge::list_merges(&ctx, args),
+                    merge::MergeCommand::Show(args) => merge::show_merge(&ctx, args),
+                    merge::MergeCommand::Apply(args) => merge::apply_merge(&ctx, args),
+                    merge::MergeCommand::Dismiss(args) => merge::dismiss_merge(&ctx, args),
+                    merge::MergeCommand::Contacts(args) => merge::merge_contacts(&ctx, args),
                 },
                 Command::AddNote(args) => interactions::add_note(&ctx, args),
                 Command::Touch(args) => interactions::touch_contact(&ctx, args),

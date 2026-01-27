@@ -18,6 +18,7 @@ pub enum Action {
     LoadList,
     LoadDetail(ContactId),
     LoadTags(ContactId),
+    LoadMerges,
     CreateContact(ContactNew, Vec<String>),
     UpdateContact(ContactId, ContactUpdate, Vec<String>),
     AddInteraction(InteractionNew),
@@ -26,6 +27,15 @@ pub enum Action {
     ClearSchedule(ContactId),
     ArchiveContact(ContactId),
     UnarchiveContact(ContactId),
+    ApplyMerge {
+        primary_id: ContactId,
+        secondary_id: ContactId,
+    },
+    SetMergePreferred {
+        candidate_id: knotter_core::domain::MergeCandidateId,
+        preferred_contact_id: ContactId,
+    },
+    DismissMerge(knotter_core::domain::MergeCandidateId),
 }
 
 pub fn execute_action(app: &mut App, store: &Store, action: Action) -> Result<()> {
@@ -62,6 +72,33 @@ pub fn execute_action(app: &mut App, store: &Store, action: Action) -> Result<()
                     app.mode = Mode::List;
                 }
             }
+        }
+        Action::LoadMerges => {
+            let candidates = store.merge_candidates().list_open()?;
+            let mut items = Vec::new();
+            for candidate in candidates {
+                let contact_a_name = store
+                    .contacts()
+                    .get(candidate.contact_a_id)?
+                    .map(|contact| contact.display_name)
+                    .unwrap_or_else(|| "<missing contact>".to_string());
+                let contact_b_name = store
+                    .contacts()
+                    .get(candidate.contact_b_id)?
+                    .map(|contact| contact.display_name)
+                    .unwrap_or_else(|| "<missing contact>".to_string());
+                items.push(crate::app::MergeCandidateView {
+                    id: candidate.id,
+                    reason: candidate.reason,
+                    contact_a_id: candidate.contact_a_id,
+                    contact_b_id: candidate.contact_b_id,
+                    preferred_contact_id: candidate.preferred_contact_id,
+                    contact_a_name,
+                    contact_b_name,
+                });
+            }
+            app.apply_merge_candidates(items);
+            app.clear_error();
         }
         Action::LoadTags(contact_id) => {
             let tags_with_counts = store.tags().list_with_counts()?;
@@ -193,6 +230,40 @@ pub fn execute_action(app: &mut App, store: &Store, action: Action) -> Result<()
             app.set_status(format!("Unarchived {}", contact.display_name));
             app.enqueue(Action::LoadDetail(contact_id));
             app.enqueue(Action::LoadList);
+        }
+        Action::ApplyMerge {
+            primary_id,
+            secondary_id,
+        } => {
+            let now = now_utc();
+            let tx = store.connection().unchecked_transaction()?;
+            let merged = knotter_store::repo::ContactsRepo::new(&tx).merge_contacts(
+                now,
+                primary_id,
+                secondary_id,
+                knotter_store::repo::ContactMergeOptions::default(),
+            )?;
+            tx.commit()?;
+            app.set_status(format!("Merged {} into {}", secondary_id, primary_id));
+            app.enqueue(Action::LoadMerges);
+            app.enqueue(Action::LoadList);
+            app.enqueue(Action::LoadDetail(merged.id));
+        }
+        Action::SetMergePreferred {
+            candidate_id,
+            preferred_contact_id,
+        } => {
+            store
+                .merge_candidates()
+                .set_preferred(candidate_id, Some(preferred_contact_id))?;
+            app.set_status("Updated merge preference".to_string());
+            app.enqueue(Action::LoadMerges);
+        }
+        Action::DismissMerge(candidate_id) => {
+            let now = now_utc();
+            store.merge_candidates().dismiss(now, candidate_id)?;
+            app.set_status("Dismissed merge candidate".to_string());
+            app.enqueue(Action::LoadMerges);
         }
     }
 

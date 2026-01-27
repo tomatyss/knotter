@@ -52,7 +52,10 @@ fn contact_crud_roundtrip() {
         .expect("list emails");
     assert!(emails.is_empty());
 
-    store.contacts().delete(contact.id).expect("delete contact");
+    store
+        .contacts()
+        .delete(now + 20, contact.id)
+        .expect("delete contact");
     let missing = store.contacts().get(contact.id).expect("get contact");
     assert!(missing.is_none());
 }
