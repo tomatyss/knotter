@@ -1,5 +1,15 @@
 # Release Notes
 
+## v0.3.0 (2026-01-27)
+
+### Merge Candidates
+- New merge candidate workflow with storage, CLI `knotter merge` commands, and TUI merge list/actions.
+- Import/sync now stages ambiguous matches (duplicate emails or name collisions) as merge candidates instead of skipping.
+
+### Sync & Import
+- `knotter sync` now runs best-effort across sources/accounts, reporting warnings while continuing.
+- Email import can match archived staged contacts when an open merge candidate exists, preserving touches.
+
 ## v0.2.2 (2026-01-26)
 
 ### Packaging & Defaults

@@ -1,6 +1,6 @@
 [package]
 name = "knotter-cli"
-version = "0.2.2"
+version = "0.3.0"
 authors = ["Tomatyss <tomatyss@users.noreply.github.com>"]
 license = "Apache-2.0"
 description = "Terminal-first personal CRM and friendship tracker (CLI)."
