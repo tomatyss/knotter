@@ -10,7 +10,7 @@ use knotter_core::time::{local_offset, now_utc};
 use knotter_store::repo::{ContactNew, ContactUpdate, EmailOps, InteractionNew};
 use knotter_store::{query::ContactQuery, Store};
 
-use crate::app::{App, Mode, TagChoice};
+use crate::app::{App, MergePickerItem, Mode, TagChoice};
 use crate::util::format_interaction_kind;
 
 #[derive(Debug, Clone)]
@@ -19,6 +19,7 @@ pub enum Action {
     LoadDetail(ContactId),
     LoadTags(ContactId),
     LoadMerges,
+    LoadMergePicker(ContactId),
     CreateContact(ContactNew, Vec<String>),
     UpdateContact(ContactId, ContactUpdate, Vec<String>),
     AddInteraction(InteractionNew),
@@ -98,6 +99,28 @@ pub fn execute_action(app: &mut App, store: &Store, action: Action) -> Result<()
                 });
             }
             app.apply_merge_candidates(items);
+            app.clear_error();
+        }
+        Action::LoadMergePicker(primary_id) => {
+            let mut contacts = store.contacts().list_all()?;
+            contacts.retain(|contact| contact.id != primary_id);
+            contacts.sort_by_key(|contact| {
+                (contact.display_name.to_lowercase(), contact.id.to_string())
+            });
+            let items = contacts
+                .into_iter()
+                .map(|contact| MergePickerItem {
+                    id: contact.id,
+                    display_name: contact.display_name,
+                    email: contact.email,
+                    archived_at: contact.archived_at,
+                })
+                .collect();
+            if let Mode::ModalMergePicker(picker) = &mut app.mode {
+                if picker.primary_id == primary_id {
+                    picker.set_items(items);
+                }
+            }
             app.clear_error();
         }
         Action::LoadTags(contact_id) => {
@@ -236,6 +259,7 @@ pub fn execute_action(app: &mut App, store: &Store, action: Action) -> Result<()
             secondary_id,
         } => {
             let now = now_utc();
+            let refresh_merges = matches!(app.mode, Mode::MergeList);
             let tx = store.connection().unchecked_transaction()?;
             let merged = knotter_store::repo::ContactsRepo::new(&tx).merge_contacts(
                 now,
@@ -245,7 +269,10 @@ pub fn execute_action(app: &mut App, store: &Store, action: Action) -> Result<()
             )?;
             tx.commit()?;
             app.set_status(format!("Merged {} into {}", secondary_id, primary_id));
-            app.enqueue(Action::LoadMerges);
+            app.pending_select = Some(merged.id);
+            if refresh_merges {
+                app.enqueue(Action::LoadMerges);
+            }
             app.enqueue(Action::LoadList);
             app.enqueue(Action::LoadDetail(merged.id));
         }
