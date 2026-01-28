@@ -15,6 +15,7 @@ pub enum Mode {
     FilterEditing,
     Detail(ContactId),
     MergeList,
+    ModalMergePicker(MergePicker),
     ModalAddContact(ContactForm),
     ModalEditContact(ContactForm),
     ModalAddNote(NoteForm),
@@ -200,6 +201,11 @@ impl App {
                     mode = next;
                 }
             }
+            Mode::ModalMergePicker(picker) => {
+                if let Some(next) = self.handle_merge_picker_key(picker, key) {
+                    mode = next;
+                }
+            }
             Mode::ModalAddContact(form) | Mode::ModalEditContact(form) => {
                 if let Some(next) = self.handle_contact_form_key(form, key) {
                     mode = next;
@@ -325,6 +331,18 @@ impl App {
                 self.enqueue(Action::LoadMerges);
                 return Some(Mode::MergeList);
             }
+            KeyCode::Char('M') => {
+                if let Some(item) = self.contacts.get(self.selected) {
+                    let contact_id = item.id;
+                    let contact_name = item.display_name.clone();
+                    self.enqueue(Action::LoadMergePicker(contact_id));
+                    return Some(Mode::ModalMergePicker(MergePicker::new(
+                        contact_id,
+                        contact_name,
+                        MergePickerReturn::List,
+                    )));
+                }
+            }
             KeyCode::Char('r') => self.enqueue(Action::LoadList),
             _ => {}
         }
@@ -423,6 +441,17 @@ impl App {
                 self.enqueue(Action::LoadMerges);
                 return Some(Mode::MergeList);
             }
+            KeyCode::Char('M') => {
+                if let Some(detail) = &self.detail {
+                    let contact_name = detail.display_name.clone();
+                    self.enqueue(Action::LoadMergePicker(contact_id));
+                    return Some(Mode::ModalMergePicker(MergePicker::new(
+                        contact_id,
+                        contact_name,
+                        MergePickerReturn::Detail(contact_id),
+                    )));
+                }
+            }
             KeyCode::Char('r') => {
                 self.enqueue(Action::LoadDetail(contact_id));
             }
@@ -501,6 +530,97 @@ impl App {
             }
             KeyCode::Char('r') => self.enqueue(Action::LoadMerges),
             _ => {}
+        }
+        None
+    }
+
+    fn handle_merge_picker_key(&mut self, picker: &mut MergePicker, key: KeyEvent) -> Option<Mode> {
+        if key.modifiers.contains(KeyModifiers::CONTROL) && matches!(key.code, KeyCode::Char('r')) {
+            self.enqueue(Action::LoadMergePicker(picker.primary_id));
+            return None;
+        }
+        match key.code {
+            KeyCode::Esc => return Some(picker.return_mode.to_mode()),
+            KeyCode::Tab => picker.focus_next(),
+            KeyCode::BackTab => picker.focus_prev(),
+            KeyCode::Up => {
+                if picker.focus == MergePickerFocus::List {
+                    picker.move_selection(-1);
+                }
+            }
+            KeyCode::Down => {
+                if picker.focus == MergePickerFocus::List {
+                    picker.move_selection(1);
+                }
+            }
+            KeyCode::Char('k') if picker.focus == MergePickerFocus::List => {
+                picker.move_selection(-1);
+            }
+            KeyCode::Char('j') if picker.focus == MergePickerFocus::List => {
+                picker.move_selection(1);
+            }
+            KeyCode::PageDown => {
+                if picker.focus == MergePickerFocus::List {
+                    picker.move_selection(5);
+                }
+            }
+            KeyCode::PageUp => {
+                if picker.focus == MergePickerFocus::List {
+                    picker.move_selection(-5);
+                }
+            }
+            KeyCode::Home => {
+                if picker.focus == MergePickerFocus::List {
+                    picker.selected_index = 0;
+                }
+            }
+            KeyCode::End => {
+                if picker.focus == MergePickerFocus::List && !picker.filtered.is_empty() {
+                    picker.selected_index = picker.filtered.len() - 1;
+                }
+            }
+            KeyCode::Char('g') if picker.focus == MergePickerFocus::List => {
+                picker.selected_index = 0;
+            }
+            KeyCode::Char('G') if picker.focus == MergePickerFocus::List => {
+                if !picker.filtered.is_empty() {
+                    picker.selected_index = picker.filtered.len() - 1;
+                }
+            }
+            KeyCode::Char('r') if picker.focus != MergePickerFocus::Filter => {
+                self.enqueue(Action::LoadMergePicker(picker.primary_id));
+            }
+            KeyCode::Enter => match picker.focus {
+                MergePickerFocus::Filter => picker.focus_next(),
+                MergePickerFocus::List | MergePickerFocus::Merge => {
+                    if let Some(target) = picker.selected_item() {
+                        let message = format!(
+                            "Merge {} into {}? (y/n)",
+                            target.display_name, picker.primary_name
+                        );
+                        let confirm = ConfirmState::new(
+                            message,
+                            ConfirmAction::ApplyMerge {
+                                primary_id: picker.primary_id,
+                                secondary_id: target.id,
+                            },
+                        )
+                        .with_return_modes(
+                            picker.return_mode.to_confirm_return(),
+                            ConfirmReturn::MergePicker(picker.clone()),
+                        );
+                        return Some(Mode::Confirm(confirm));
+                    }
+                    self.set_error("no merge target selected");
+                }
+                MergePickerFocus::Cancel => return Some(picker.return_mode.to_mode()),
+            },
+            _ => {
+                if picker.focus == MergePickerFocus::Filter {
+                    apply_text_input(&mut picker.filter, key);
+                    picker.refresh_filter();
+                }
+            }
         }
         None
     }
@@ -658,22 +778,18 @@ impl App {
                 if let Some(action) = state.to_action() {
                     self.enqueue(action);
                 }
-                let return_mode = match state.action {
-                    ConfirmAction::ApplyMerge { .. } | ConfirmAction::DismissMerge(_) => {
-                        Mode::MergeList
-                    }
-                    _ => Mode::List,
-                };
-                return Some(return_mode);
+                let return_mode = state
+                    .return_on_confirm
+                    .clone()
+                    .unwrap_or_else(|| default_confirm_return_mode(&state.action));
+                return Some(return_mode.into_mode());
             }
             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-                let return_mode = match state.action {
-                    ConfirmAction::ApplyMerge { .. } | ConfirmAction::DismissMerge(_) => {
-                        Mode::MergeList
-                    }
-                    _ => Mode::List,
-                };
-                return Some(return_mode);
+                let return_mode = state
+                    .return_on_cancel
+                    .clone()
+                    .unwrap_or_else(|| default_confirm_return_mode(&state.action));
+                return Some(return_mode.into_mode());
             }
             _ => {}
         }
@@ -1141,6 +1257,164 @@ impl TagEditor {
 }
 
 #[derive(Debug, Clone)]
+pub struct MergePickerItem {
+    pub id: ContactId,
+    pub display_name: String,
+    pub email: Option<String>,
+    pub archived_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MergePickerFocus {
+    Filter,
+    List,
+    Merge,
+    Cancel,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MergePickerReturn {
+    List,
+    Detail(ContactId),
+}
+
+impl MergePickerReturn {
+    pub fn to_mode(self) -> Mode {
+        match self {
+            MergePickerReturn::List => Mode::List,
+            MergePickerReturn::Detail(contact_id) => Mode::Detail(contact_id),
+        }
+    }
+
+    pub fn to_confirm_return(self) -> ConfirmReturn {
+        match self {
+            MergePickerReturn::List => ConfirmReturn::List,
+            MergePickerReturn::Detail(contact_id) => ConfirmReturn::Detail(contact_id),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MergePicker {
+    pub primary_id: ContactId,
+    pub primary_name: String,
+    pub return_mode: MergePickerReturn,
+    pub focus: MergePickerFocus,
+    pub filter: String,
+    pub items: Vec<MergePickerItem>,
+    pub filtered: Vec<usize>,
+    pub selected_index: usize,
+}
+
+impl MergePicker {
+    pub fn new(
+        primary_id: ContactId,
+        primary_name: String,
+        return_mode: MergePickerReturn,
+    ) -> Self {
+        Self {
+            primary_id,
+            primary_name,
+            return_mode,
+            focus: MergePickerFocus::Filter,
+            filter: String::new(),
+            items: Vec::new(),
+            filtered: Vec::new(),
+            selected_index: 0,
+        }
+    }
+
+    pub fn focus_next(&mut self) {
+        self.focus = match self.focus {
+            MergePickerFocus::Filter => MergePickerFocus::List,
+            MergePickerFocus::List => MergePickerFocus::Merge,
+            MergePickerFocus::Merge => MergePickerFocus::Cancel,
+            MergePickerFocus::Cancel => MergePickerFocus::Filter,
+        };
+    }
+
+    pub fn focus_prev(&mut self) {
+        self.focus = match self.focus {
+            MergePickerFocus::Filter => MergePickerFocus::Cancel,
+            MergePickerFocus::List => MergePickerFocus::Filter,
+            MergePickerFocus::Merge => MergePickerFocus::List,
+            MergePickerFocus::Cancel => MergePickerFocus::Merge,
+        };
+    }
+
+    pub fn is_merge_focus(&self) -> bool {
+        self.focus == MergePickerFocus::Merge
+    }
+
+    pub fn is_cancel_focus(&self) -> bool {
+        self.focus == MergePickerFocus::Cancel
+    }
+
+    pub fn set_items(&mut self, items: Vec<MergePickerItem>) {
+        let selected_id = self.selected_item().map(|item| item.id);
+        self.items = items;
+        self.refresh_filter();
+        if let Some(id) = selected_id {
+            if let Some(pos) = self
+                .filtered
+                .iter()
+                .position(|idx| self.items[*idx].id == id)
+            {
+                self.selected_index = pos;
+            }
+        }
+    }
+
+    pub fn refresh_filter(&mut self) {
+        let needle = self.filter.trim().to_lowercase();
+        self.filtered = if needle.is_empty() {
+            (0..self.items.len()).collect()
+        } else {
+            self.items
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, item)| {
+                    let mut haystack = item.display_name.to_lowercase();
+                    if let Some(email) = item.email.as_deref() {
+                        haystack.push(' ');
+                        haystack.push_str(&email.to_lowercase());
+                    }
+                    if haystack.contains(&needle) {
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
+        if self.selected_index >= self.filtered.len() {
+            self.selected_index = self.filtered.len().saturating_sub(1);
+        }
+    }
+
+    pub fn move_selection(&mut self, delta: i32) {
+        if self.filtered.is_empty() {
+            self.selected_index = 0;
+            return;
+        }
+        let len = self.filtered.len() as i32;
+        let mut next = self.selected_index as i32 + delta;
+        if next < 0 {
+            next = 0;
+        }
+        if next >= len {
+            next = len - 1;
+        }
+        self.selected_index = next as usize;
+    }
+
+    pub fn selected_item(&self) -> Option<&MergePickerItem> {
+        let idx = self.filtered.get(self.selected_index)?;
+        self.items.get(*idx)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ScheduleForm {
     pub(crate) focus: usize,
     pub contact_id: ContactId,
@@ -1238,11 +1512,24 @@ pub enum ConfirmAction {
 pub struct ConfirmState {
     pub message: String,
     pub action: ConfirmAction,
+    pub return_on_confirm: Option<ConfirmReturn>,
+    pub return_on_cancel: Option<ConfirmReturn>,
 }
 
 impl ConfirmState {
     pub fn new(message: String, action: ConfirmAction) -> Self {
-        Self { message, action }
+        Self {
+            message,
+            action,
+            return_on_confirm: None,
+            return_on_cancel: None,
+        }
+    }
+
+    pub fn with_return_modes(mut self, confirm: ConfirmReturn, cancel: ConfirmReturn) -> Self {
+        self.return_on_confirm = Some(confirm);
+        self.return_on_cancel = Some(cancel);
+        self
     }
 
     pub fn to_action(&self) -> Option<Action> {
@@ -1258,6 +1545,34 @@ impl ConfirmState {
                 secondary_id,
             }),
             ConfirmAction::DismissMerge(id) => Some(Action::DismissMerge(id)),
+        }
+    }
+}
+
+fn default_confirm_return_mode(action: &ConfirmAction) -> ConfirmReturn {
+    match action {
+        ConfirmAction::ApplyMerge { .. } | ConfirmAction::DismissMerge(_) => {
+            ConfirmReturn::MergeList
+        }
+        _ => ConfirmReturn::List,
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ConfirmReturn {
+    List,
+    MergeList,
+    Detail(ContactId),
+    MergePicker(MergePicker),
+}
+
+impl ConfirmReturn {
+    pub fn into_mode(self) -> Mode {
+        match self {
+            ConfirmReturn::List => Mode::List,
+            ConfirmReturn::MergeList => Mode::MergeList,
+            ConfirmReturn::Detail(contact_id) => Mode::Detail(contact_id),
+            ConfirmReturn::MergePicker(picker) => Mode::ModalMergePicker(picker),
         }
     }
 }
@@ -1284,4 +1599,136 @@ fn parse_emails(raw: &str) -> Vec<String> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MergePicker, MergePickerItem, MergePickerReturn};
+    use knotter_core::domain::ContactId;
+
+    fn item(name: &str, email: Option<&str>) -> MergePickerItem {
+        MergePickerItem {
+            id: ContactId::new(),
+            display_name: name.to_string(),
+            email: email.map(|value| value.to_string()),
+            archived_at: None,
+        }
+    }
+
+    #[test]
+    fn merge_picker_filters_by_name_and_email_case_insensitive() {
+        let mut picker = MergePicker::new(
+            ContactId::new(),
+            "Primary".to_string(),
+            MergePickerReturn::List,
+        );
+        picker.set_items(vec![
+            item("Alice Example", Some("alice@example.com")),
+            item("Bob Builder", None),
+            item("Charlie", Some("charlie@work.com")),
+        ]);
+
+        picker.filter = "ali".to_string();
+        picker.refresh_filter();
+        assert_eq!(picker.filtered.len(), 1);
+        assert_eq!(
+            picker
+                .selected_item()
+                .map(|item| item.display_name.as_str()),
+            Some("Alice Example")
+        );
+
+        picker.filter = "WORK".to_string();
+        picker.refresh_filter();
+        assert_eq!(picker.filtered.len(), 1);
+        assert_eq!(
+            picker
+                .selected_item()
+                .map(|item| item.display_name.as_str()),
+            Some("Charlie")
+        );
+
+        picker.filter = "bob".to_string();
+        picker.refresh_filter();
+        assert_eq!(picker.filtered.len(), 1);
+        assert_eq!(
+            picker
+                .selected_item()
+                .map(|item| item.display_name.as_str()),
+            Some("Bob Builder")
+        );
+
+        picker.filter = "nomatch".to_string();
+        picker.refresh_filter();
+        assert!(picker.filtered.is_empty());
+        assert!(picker.selected_item().is_none());
+    }
+
+    #[test]
+    fn merge_picker_clamps_selection_after_filtering() {
+        let mut picker = MergePicker::new(
+            ContactId::new(),
+            "Primary".to_string(),
+            MergePickerReturn::List,
+        );
+        picker.set_items(vec![
+            item("Alice", None),
+            item("Bob", None),
+            item("Cara", None),
+        ]);
+        picker.selected_index = 2;
+
+        picker.filter = "ali".to_string();
+        picker.refresh_filter();
+        assert_eq!(picker.filtered.len(), 1);
+        assert_eq!(picker.selected_index, 0);
+        assert_eq!(
+            picker
+                .selected_item()
+                .map(|item| item.display_name.as_str()),
+            Some("Alice")
+        );
+
+        picker.filter = "zzz".to_string();
+        picker.refresh_filter();
+        assert!(picker.filtered.is_empty());
+        assert_eq!(picker.selected_index, 0);
+        assert!(picker.selected_item().is_none());
+    }
+
+    #[test]
+    fn merge_picker_preserves_selection_by_id_on_set_items() {
+        let mut picker = MergePicker::new(
+            ContactId::new(),
+            "Primary".to_string(),
+            MergePickerReturn::List,
+        );
+        let a = item("Alice", None);
+        let b = item("Bob", None);
+        let c = item("Cara", None);
+        let b_id = b.id;
+        picker.set_items(vec![a.clone(), b.clone(), c]);
+        picker.selected_index = 1;
+
+        picker.set_items(vec![b.clone(), a]);
+        assert_eq!(picker.filtered.len(), 2);
+        assert_eq!(picker.selected_item().map(|item| item.id), Some(b_id));
+        assert_eq!(picker.selected_index, 0);
+    }
+
+    #[test]
+    fn merge_picker_move_selection_respects_bounds() {
+        let mut picker = MergePicker::new(
+            ContactId::new(),
+            "Primary".to_string(),
+            MergePickerReturn::List,
+        );
+        picker.set_items(vec![item("Alice", None), item("Bob", None)]);
+
+        picker.move_selection(-1);
+        assert_eq!(picker.selected_index, 0);
+
+        picker.move_selection(5);
+        assert_eq!(picker.selected_index, 1);
+    }
 }

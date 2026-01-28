@@ -8,7 +8,8 @@ use knotter_core::rules::DueState;
 use knotter_core::time::{format_timestamp_date, format_timestamp_datetime};
 
 use crate::app::{
-    App, ConfirmState, ContactForm, Mode, NoteForm, ScheduleForm, TagEditor, TagEditorFocus,
+    App, ConfirmState, ContactForm, MergePicker, MergePickerFocus, Mode, NoteForm, ScheduleForm,
+    TagEditor, TagEditorFocus,
 };
 
 pub fn draw(frame: &mut Frame<'_>, app: &App) {
@@ -42,6 +43,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
         Mode::ModalAddNote(form) => render_note_form(frame, size, form),
         Mode::ModalEditTags(editor) => render_tag_editor(frame, size, editor),
         Mode::ModalSchedule(form) => render_schedule_form(frame, size, form),
+        Mode::ModalMergePicker(picker) => render_merge_picker(frame, size, picker),
         Mode::Confirm(state) => render_confirm(frame, size, state),
         _ => {}
     }
@@ -73,14 +75,17 @@ fn render_header(frame: &mut Frame<'_>, area: Rect, app: &App) {
 
 fn render_footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let hint = match app.mode {
-        Mode::List => "j/k move  enter detail  / filter  a add  e edit  n note  t tags  s schedule  x clear  A archive  v archived  m merges  ? help",
-        Mode::Detail(_) => "esc back  j/k scroll  e edit  n note  t tags  s schedule  x clear  A archive  m merges  ? help",
+        Mode::List => "j/k move  enter detail  / filter  a add  e edit  n note  t tags  s schedule  x clear  A archive  v archived  m merges  M merge-with  ? help",
+        Mode::Detail(_) => "esc back  j/k scroll  e edit  n note  t tags  s schedule  x clear  A archive  m merges  M merge-with  ? help",
         Mode::MergeList => "j/k move  enter merge  p prefer  d dismiss  r refresh  esc back",
         Mode::FilterEditing => "enter apply  esc cancel",
         Mode::ModalAddContact(_) | Mode::ModalEditContact(_) => {
             "tab next  shift+tab prev  enter select  ctrl+n set now  esc cancel"
         }
         Mode::ModalSchedule(_) => "tab next  shift+tab prev  enter select  ctrl+n set now  esc cancel",
+        Mode::ModalMergePicker(_) => {
+            "tab next  shift+tab prev  enter select  ctrl+r refresh  esc cancel"
+        }
         _ => "tab next  shift+tab prev  enter select  esc cancel",
     };
 
@@ -519,6 +524,111 @@ fn render_tag_editor(frame: &mut Frame<'_>, area: Rect, editor: &TagEditor) {
     frame.render_widget(buttons, chunks[2]);
 }
 
+fn render_merge_picker(frame: &mut Frame<'_>, area: Rect, picker: &MergePicker) {
+    let modal = centered_rect(70, 70, area);
+    frame.render_widget(Clear, modal);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(4),
+            Constraint::Length(3),
+        ])
+        .split(modal);
+
+    let filter_line = field_line(
+        "Filter",
+        &picker.filter,
+        picker.focus == MergePickerFocus::Filter,
+    );
+    let filter_block = Block::default()
+        .borders(Borders::ALL)
+        .title(format!("Merge into {}", picker.primary_name));
+    frame.render_widget(Paragraph::new(filter_line).block(filter_block), chunks[0]);
+
+    if picker.filtered.is_empty() {
+        let message = if picker.items.is_empty() {
+            "No other contacts available."
+        } else {
+            "No matches."
+        };
+        let list_block = Block::default().borders(Borders::ALL).title("Contacts");
+        let paragraph = Paragraph::new(message)
+            .block(list_block)
+            .alignment(Alignment::Center);
+        frame.render_widget(paragraph, chunks[1]);
+    } else {
+        let items: Vec<ListItem> = picker
+            .filtered
+            .iter()
+            .map(|idx| &picker.items[*idx])
+            .map(|contact| {
+                let mut spans = vec![Span::styled(
+                    contact.display_name.clone(),
+                    Style::default().add_modifier(Modifier::BOLD),
+                )];
+                if let Some(email) = contact.email.as_deref() {
+                    spans.push(Span::raw("  "));
+                    spans.push(Span::styled(
+                        email.to_string(),
+                        Style::default().fg(Color::DarkGray),
+                    ));
+                }
+                if contact.archived_at.is_some() {
+                    spans.push(Span::raw("  "));
+                    spans.push(Span::styled(
+                        "[archived]".to_string(),
+                        Style::default().fg(Color::Red),
+                    ));
+                }
+                ListItem::new(Line::from(spans))
+            })
+            .collect();
+
+        let mut state = ListState::default().with_selected(Some(picker.selected_index));
+        let visible = chunks[1].height.saturating_sub(2) as usize;
+        if visible > 0 && picker.filtered.len() > visible {
+            let selected = picker
+                .selected_index
+                .min(picker.filtered.len().saturating_sub(1));
+            let offset = selected.saturating_sub(visible.saturating_sub(1));
+            *state.offset_mut() = offset;
+        }
+
+        let list = List::new(items)
+            .block(Block::default().borders(Borders::ALL).title("Contacts"))
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::LightGreen)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("➤ ");
+        frame.render_stateful_widget(list, chunks[1], &mut state);
+    }
+
+    let merge_style = if picker.is_merge_focus() {
+        Style::default().fg(Color::Black).bg(Color::LightGreen)
+    } else {
+        Style::default().fg(Color::Green)
+    };
+    let cancel_style = if picker.is_cancel_focus() {
+        Style::default().fg(Color::Black).bg(Color::LightRed)
+    } else {
+        Style::default().fg(Color::Red)
+    };
+
+    let buttons = Paragraph::new(Line::from(vec![
+        Span::styled("[Merge]", merge_style),
+        Span::raw("  "),
+        Span::styled("[Cancel]", cancel_style),
+    ]))
+    .block(Block::default().borders(Borders::ALL));
+
+    frame.render_widget(buttons, chunks[2]);
+}
+
 fn render_schedule_form(frame: &mut Frame<'_>, area: Rect, form: &ScheduleForm) {
     let modal = centered_rect(60, 50, area);
     frame.render_widget(Clear, modal);
@@ -572,10 +682,11 @@ fn render_help(frame: &mut Frame<'_>, area: Rect) {
 
     let text = vec![
         Line::from("Global: q quit, Ctrl+C quit, ? help"),
-        Line::from("List: j/k move, enter detail, / filter, a add, e edit, n note, t tags, s schedule, x clear, A archive, v archived, m merges"),
+        Line::from("List: j/k move, enter detail, / filter, a add, e edit, n note, t tags, s schedule, x clear, A archive, v archived, m merges, M merge-with"),
         Line::from("Filter: enter apply, esc cancel"),
-        Line::from("Detail: esc back, j/k scroll, e edit, n note, t tags, s schedule, x clear, A archive, m merges"),
+        Line::from("Detail: esc back, j/k scroll, e edit, n note, t tags, s schedule, x clear, A archive, m merges, M merge-with"),
         Line::from("Merge: j/k move, enter merge, p prefer, d dismiss, r refresh, esc back"),
+        Line::from("Merge picker: tab to list, j/k move, enter merge, ctrl+r refresh, esc back"),
         Line::from("Modals: tab/shift+tab move, enter activate, esc cancel, Ctrl+N set now (contact/schedule)"),
         Line::from(""),
         Line::from("Filter syntax: #tag, due:overdue|today|soon|any|none, archived:true|false, text matches name/email/phone/handle"),

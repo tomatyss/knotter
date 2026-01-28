@@ -122,6 +122,8 @@ This is the default view: a scrollable contact list, with due indicators and tag
   Toggle showing archived contacts in the list.
 - `m`  
   Open merge candidate list (`Mode::MergeList`).
+- `M`  
+  Open merge picker for selected contact (`Mode::ModalMergePicker`).
 
 ### Optional (only if implemented)
 - `d`  
@@ -182,6 +184,8 @@ The detail view shows:
   Clear schedule (confirm).
 - `m`  
   Open merge candidate list (`Mode::MergeList`).
+- `M`  
+  Open merge picker for this contact (`Mode::ModalMergePicker`).
 
 ### Optional
 - `d` delete contact (confirm)
@@ -209,6 +213,26 @@ Shows open merge candidates created during import/sync.
   Refresh merge list.
 - `Esc`  
   Return to contact list.
+
+---
+
+## Mode: Merge picker (`Mode::ModalMergePicker`)
+
+Pick a contact to merge into the selected primary contact.
+
+### Navigation
+- `Tab`/`Shift+Tab` move focus (filter → list → buttons)
+- `↑`/`↓`, `j`/`k` move selection (when list is focused)
+- `PageUp`/`PageDown` scroll
+- `g`/`G` jump top/bottom
+
+### Actions
+- `Enter`  
+  Merge selected contact into primary (confirm required).
+- `Ctrl+R`  
+  Refresh contact list.
+- `Esc`  
+  Return to the previous view.
 
 ---
 
