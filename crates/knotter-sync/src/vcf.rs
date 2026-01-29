@@ -1,7 +1,11 @@
 use crate::error::Result;
-use knotter_core::domain::{Contact, ContactId, TagName};
+use knotter_core::domain::{
+    normalize_contact_date_label, Contact, ContactDate, ContactDateKind, ContactId, TagName,
+};
+use knotter_core::time::parse_date_parts;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ImportReport {
@@ -21,6 +25,16 @@ pub struct VcfContact {
     pub tags: Vec<TagName>,
     pub next_touchpoint_at: Option<i64>,
     pub cadence_days: Option<i32>,
+    pub dates: Vec<ContactDateInput>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ContactDateInput {
+    pub kind: ContactDateKind,
+    pub label: Option<String>,
+    pub month: u8,
+    pub day: u8,
+    pub year: Option<i32>,
 }
 
 #[derive(Debug, Clone)]
@@ -109,6 +123,18 @@ pub fn parse_vcf(data: &str) -> Result<ParsedVcf> {
                     card.cadence_days = Some(value.trim().to_string());
                 }
             }
+            "BDAY" => {
+                let value = unescape_vcard_value(&raw_value);
+                if card.birthday.is_none() && !value.trim().is_empty() {
+                    card.birthday = Some(value.trim().to_string());
+                }
+            }
+            "X-KNOTTER-DATE" => {
+                let value = unescape_vcard_value(&raw_value);
+                if !value.trim().is_empty() {
+                    card.date_fields.push(value.trim().to_string());
+                }
+            }
             _ => {}
         }
     }
@@ -133,6 +159,7 @@ pub fn export_vcf(
     contacts: &[Contact],
     tags: &HashMap<ContactId, Vec<String>>,
     emails: &HashMap<ContactId, Vec<String>>,
+    dates: &HashMap<ContactId, Vec<ContactDate>>,
 ) -> Result<String> {
     let mut entries: Vec<&Contact> = contacts.iter().collect();
     entries.sort_by_key(|contact| contact.display_name.to_ascii_lowercase());
@@ -179,6 +206,39 @@ pub fn export_vcf(
         if let Some(cadence_days) = contact.cadence_days {
             out.push_str(&format!("X-KNOTTER-CADENCE-DAYS:{}\r\n", cadence_days));
         }
+        if let Some(contact_dates) = dates.get(&contact.id) {
+            let primary_birthday = contact_dates
+                .iter()
+                .filter(|date| date.kind == ContactDateKind::Birthday)
+                .max_by_key(|date| {
+                    let has_year = date.year.is_some() as u8;
+                    let label_empty =
+                        normalize_contact_date_label(date.label.clone()).is_none() as u8;
+                    (has_year, label_empty)
+                });
+
+            let primary_birthday_id = primary_birthday.map(|date| date.id);
+            if let Some(birthday) = primary_birthday {
+                let date = format_vcard_date(birthday.month, birthday.day, birthday.year);
+                out.push_str(&format!("BDAY:{}\r\n", date));
+            }
+
+            for date in contact_dates {
+                let label = normalize_contact_date_label(date.label.clone()).unwrap_or_default();
+                let is_primary_birthday = date.kind == ContactDateKind::Birthday
+                    && primary_birthday_id.is_some_and(|id| id == date.id);
+                if is_primary_birthday && label.is_empty() {
+                    continue;
+                }
+                let date_value = format_vcard_date(date.month, date.day, date.year);
+                let raw = if label.is_empty() {
+                    format!("{}|{}", date.kind.as_str(), date_value)
+                } else {
+                    format!("{}|{}|{}", date.kind.as_str(), date_value, label)
+                };
+                out.push_str(&format!("X-KNOTTER-DATE:{}\r\n", escape_vcard_value(&raw)));
+            }
+        }
 
         out.push_str("END:VCARD\r\n");
     }
@@ -194,6 +254,8 @@ struct RawCard {
     categories: Vec<String>,
     next_touchpoint_at: Option<String>,
     cadence_days: Option<String>,
+    birthday: Option<String>,
+    date_fields: Vec<String>,
 }
 
 impl RawCard {
@@ -263,6 +325,59 @@ impl RawCard {
             }
         }
 
+        let mut dates: Vec<ContactDateInput> = Vec::new();
+        let mut date_index: HashMap<String, usize> = HashMap::new();
+
+        let mut birthday_date: Option<ContactDateInput> = None;
+        if let Some(raw) = self.birthday {
+            match parse_vcard_date(&raw) {
+                Ok((month, day, year)) => {
+                    let year = normalize_date_year(year, warnings, "BDAY");
+                    birthday_date = Some(ContactDateInput {
+                        kind: ContactDateKind::Birthday,
+                        label: None,
+                        month,
+                        day,
+                        year,
+                    });
+                }
+                Err(message) => warnings.push(format!("invalid BDAY: {}", message)),
+            }
+        }
+
+        for raw in self.date_fields {
+            match parse_knotter_date_field(&raw) {
+                Ok(mut date) => {
+                    date.year = normalize_date_year(date.year, warnings, "X-KNOTTER-DATE");
+                    push_contact_date(&mut dates, &mut date_index, date, warnings);
+                }
+                Err(message) => warnings.push(format!("invalid X-KNOTTER-DATE: {}", message)),
+            }
+        }
+
+        if let Some(birthday) = birthday_date {
+            let mut target = dates.iter_mut().find(|date| {
+                date.kind == ContactDateKind::Birthday
+                    && date.month == birthday.month
+                    && date.day == birthday.day
+                    && date.label.is_none()
+            });
+            if target.is_none() {
+                target = dates.iter_mut().find(|date| {
+                    date.kind == ContactDateKind::Birthday
+                        && date.month == birthday.month
+                        && date.day == birthday.day
+                });
+            }
+            if let Some(existing) = target {
+                if existing.year.is_none() && birthday.year.is_some() {
+                    existing.year = birthday.year;
+                }
+            } else {
+                push_contact_date(&mut dates, &mut date_index, birthday, warnings);
+            }
+        }
+
         Some(VcfContact {
             display_name,
             emails,
@@ -270,6 +385,7 @@ impl RawCard {
             tags,
             next_touchpoint_at,
             cadence_days,
+            dates,
         })
     }
 }
@@ -393,9 +509,112 @@ fn unescape_vcard_value(value: &str) -> String {
     out
 }
 
+fn format_vcard_date(month: u8, day: u8, year: Option<i32>) -> String {
+    match year {
+        Some(year) => format!("{year:04}-{month:02}-{day:02}"),
+        None => format!("--{month:02}{day:02}"),
+    }
+}
+
+fn parse_vcard_date(raw: &str) -> std::result::Result<(u8, u8, Option<i32>), String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("empty date".to_string());
+    }
+    let date_part = trimmed
+        .split(['T', ' '])
+        .next()
+        .unwrap_or(trimmed)
+        .trim_end_matches('Z');
+    parse_date_parts(date_part).map_err(|err| err.to_string())
+}
+
+fn parse_knotter_date_field(raw: &str) -> std::result::Result<ContactDateInput, String> {
+    let parts: Vec<&str> = raw.split('|').collect();
+    if parts.len() < 2 {
+        return Err("expected kind|date|label".to_string());
+    }
+    let kind = ContactDateKind::from_str(parts[0]).map_err(|_| "invalid kind".to_string())?;
+    let (month, day, year) = parse_vcard_date(parts[1])?;
+    let label = if parts.len() > 2 {
+        let joined = parts[2..].join("|");
+        normalize_contact_date_label(Some(joined))
+    } else {
+        None
+    };
+    if kind == ContactDateKind::Custom && label.is_none() {
+        return Err("custom dates require a label".to_string());
+    }
+    Ok(ContactDateInput {
+        kind,
+        label,
+        month,
+        day,
+        year,
+    })
+}
+
+fn normalize_date_year(
+    year: Option<i32>,
+    warnings: &mut Vec<String>,
+    context: &str,
+) -> Option<i32> {
+    match year {
+        Some(value) if !(1..=9999).contains(&value) => {
+            warnings.push(format!("invalid {context} year: {value}; dropping year"));
+            None
+        }
+        other => other,
+    }
+}
+
+fn push_contact_date(
+    dates: &mut Vec<ContactDateInput>,
+    date_index: &mut HashMap<String, usize>,
+    date: ContactDateInput,
+    warnings: &mut Vec<String>,
+) {
+    let label = date.label.clone().unwrap_or_default();
+    let key = format!(
+        "{}|{}|{}|{}",
+        date.kind.as_str(),
+        label,
+        date.month,
+        date.day
+    );
+    if let Some(&idx) = date_index.get(&key) {
+        let existing = &mut dates[idx];
+        match (existing.year, date.year) {
+            (None, Some(_)) => {
+                *existing = date;
+            }
+            (Some(existing_year), Some(new_year)) if existing_year != new_year => {
+                let label_prefix = if label.is_empty() {
+                    String::new()
+                } else {
+                    format!("{label} ")
+                };
+                warnings.push(format!(
+                    "conflicting {} year for {}{:02}-{:02}; keeping {}",
+                    existing.kind.as_str(),
+                    label_prefix,
+                    existing.month,
+                    existing.day,
+                    existing_year
+                ));
+            }
+            _ => {}
+        }
+    } else {
+        date_index.insert(key, dates.len());
+        dates.push(date);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use knotter_core::domain::ContactDateId;
     use std::str::FromStr;
 
     #[test]
@@ -422,6 +641,19 @@ mod tests {
             .warnings
             .iter()
             .any(|warning| warning.contains("missing")));
+    }
+
+    #[test]
+    fn parse_vcf_drops_invalid_year() {
+        let data = "BEGIN:VCARD\nVERSION:3.0\nFN:Ada\nBDAY:0000-01-01\nEND:VCARD\n";
+        let parsed = parse_vcf(data).expect("parse");
+        assert_eq!(parsed.contacts.len(), 1);
+        assert!(parsed
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("invalid BDAY year")));
+        assert_eq!(parsed.contacts[0].dates.len(), 1);
+        assert_eq!(parsed.contacts[0].dates[0].year, None);
     }
 
     #[test]
@@ -472,7 +704,8 @@ mod tests {
         tag_map.insert(contact.id, vec!["friends".to_string(), "work".to_string()]);
         let mut email_map = HashMap::new();
         email_map.insert(contact.id, vec!["ada@example.com".to_string()]);
-        let output = export_vcf(&[contact], &tag_map, &email_map).expect("export");
+        let date_map: HashMap<ContactId, Vec<ContactDate>> = HashMap::new();
+        let output = export_vcf(&[contact], &tag_map, &email_map, &date_map).expect("export");
         assert!(output.contains("BEGIN:VCARD"));
         assert!(output.contains("FN:Ada Lovelace"));
         assert!(output.contains("EMAIL:ada@example.com"));
@@ -502,7 +735,8 @@ mod tests {
         let mut email_map = HashMap::new();
         email_map.insert(contact.id, vec!["grace@example.com".to_string()]);
 
-        let output = export_vcf(&[contact], &tag_map, &email_map).expect("export");
+        let date_map: HashMap<ContactId, Vec<ContactDate>> = HashMap::new();
+        let output = export_vcf(&[contact], &tag_map, &email_map, &date_map).expect("export");
         let parsed = parse_vcf(&output).expect("parse");
         assert_eq!(parsed.contacts.len(), 1);
         let round = &parsed.contacts[0];
@@ -515,5 +749,156 @@ mod tests {
         assert_eq!(round.cadence_days, Some(14));
         assert_eq!(round.tags.len(), 1);
         assert_eq!(round.tags[0].as_str(), "pioneers");
+    }
+
+    #[test]
+    fn vcf_export_roundtrip_preserves_dates() {
+        let contact = Contact {
+            id: ContactId::from_str("4b8b83e0-1b7c-4f28-9e1a-1a2d5b1e5e2d").unwrap(),
+            display_name: "Ada Lovelace".to_string(),
+            email: Some("ada@example.com".to_string()),
+            phone: None,
+            handle: None,
+            timezone: None,
+            next_touchpoint_at: None,
+            cadence_days: None,
+            created_at: 0,
+            updated_at: 0,
+            archived_at: None,
+        };
+        let mut tag_map = HashMap::new();
+        tag_map.insert(contact.id, vec!["friends".to_string()]);
+        let mut email_map = HashMap::new();
+        email_map.insert(contact.id, vec!["ada@example.com".to_string()]);
+        let birthday = ContactDate {
+            id: ContactDateId::new(),
+            contact_id: contact.id,
+            kind: ContactDateKind::Birthday,
+            label: None,
+            month: 2,
+            day: 14,
+            year: Some(1990),
+            created_at: 0,
+            updated_at: 0,
+            source: None,
+        };
+        let extra_birthday = ContactDate {
+            id: ContactDateId::new(),
+            contact_id: contact.id,
+            kind: ContactDateKind::Birthday,
+            label: None,
+            month: 3,
+            day: 1,
+            year: None,
+            created_at: 0,
+            updated_at: 0,
+            source: None,
+        };
+        let custom = ContactDate {
+            id: ContactDateId::new(),
+            contact_id: contact.id,
+            kind: ContactDateKind::Custom,
+            label: Some("Wife birthday".to_string()),
+            month: 2,
+            day: 14,
+            year: None,
+            created_at: 0,
+            updated_at: 0,
+            source: None,
+        };
+        let mut date_map = HashMap::new();
+        date_map.insert(
+            contact.id,
+            vec![birthday.clone(), extra_birthday.clone(), custom.clone()],
+        );
+
+        let output = export_vcf(&[contact], &tag_map, &email_map, &date_map).expect("export");
+        assert!(output.contains("BDAY:1990-02-14"));
+        assert!(output.contains("X-KNOTTER-DATE:birthday|--0301"));
+        assert!(output.contains("X-KNOTTER-DATE:custom|--0214|Wife birthday"));
+
+        let parsed = parse_vcf(&output).expect("parse");
+        let round = &parsed.contacts[0];
+        let mut kinds = round
+            .dates
+            .iter()
+            .map(|date| {
+                (
+                    date.kind,
+                    date.label.clone(),
+                    date.month,
+                    date.day,
+                    date.year,
+                )
+            })
+            .collect::<Vec<_>>();
+        kinds.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
+
+        assert!(kinds.iter().any(|item| {
+            item.0 == ContactDateKind::Birthday
+                && item.2 == 2
+                && item.3 == 14
+                && item.4 == Some(1990)
+        }));
+        assert!(kinds.iter().any(|item| {
+            item.0 == ContactDateKind::Birthday && item.2 == 3 && item.3 == 1 && item.4.is_none()
+        }));
+        assert!(kinds.iter().any(|item| {
+            item.0 == ContactDateKind::Custom
+                && item.1.as_deref() == Some("Wife birthday")
+                && item.2 == 2
+                && item.3 == 14
+                && item.4.is_none()
+        }));
+    }
+
+    #[test]
+    fn vcf_export_roundtrip_preserves_labeled_birthday() {
+        let contact = Contact {
+            id: ContactId::from_str("0b8b83e0-1b7c-4f28-9e1a-1a2d5b1e5e2d").unwrap(),
+            display_name: "Grace Hopper".to_string(),
+            email: Some("grace@example.com".to_string()),
+            phone: None,
+            handle: None,
+            timezone: None,
+            next_touchpoint_at: None,
+            cadence_days: None,
+            created_at: 0,
+            updated_at: 0,
+            archived_at: None,
+        };
+        let mut tag_map = HashMap::new();
+        tag_map.insert(contact.id, vec!["friends".to_string()]);
+        let mut email_map = HashMap::new();
+        email_map.insert(contact.id, vec!["grace@example.com".to_string()]);
+        let birthday = ContactDate {
+            id: ContactDateId::new(),
+            contact_id: contact.id,
+            kind: ContactDateKind::Birthday,
+            label: Some("Legal".to_string()),
+            month: 7,
+            day: 4,
+            year: Some(1906),
+            created_at: 0,
+            updated_at: 0,
+            source: None,
+        };
+        let mut date_map = HashMap::new();
+        date_map.insert(contact.id, vec![birthday.clone()]);
+
+        let output = export_vcf(&[contact], &tag_map, &email_map, &date_map).expect("export");
+        assert!(output.contains("BDAY:1906-07-04"));
+        assert!(output.contains("X-KNOTTER-DATE:birthday|1906-07-04|Legal"));
+
+        let parsed = parse_vcf(&output).expect("parse");
+        let round = &parsed.contacts[0];
+        let birthdays: Vec<_> = round
+            .dates
+            .iter()
+            .filter(|date| date.kind == ContactDateKind::Birthday)
+            .collect();
+        assert_eq!(birthdays.len(), 1);
+        assert_eq!(birthdays[0].label.as_deref(), Some("Legal"));
+        assert_eq!(birthdays[0].year, Some(1906));
     }
 }

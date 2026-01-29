@@ -1,14 +1,15 @@
 use crate::commands::{print_json, Context, DEFAULT_INTERACTION_LIMIT};
 use crate::error::{invalid_input, not_found};
 use crate::util::{
-    due_state_label, format_interaction_kind, format_timestamp_date, format_timestamp_datetime,
-    local_offset, now_utc, parse_contact_id, parse_local_timestamp_with_precision,
+    due_state_label, format_date_parts, format_interaction_kind, format_timestamp_date,
+    format_timestamp_datetime, local_offset, now_utc, parse_contact_id,
+    parse_local_timestamp_with_precision,
 };
 use anyhow::Result;
 use clap::{ArgAction, Args};
 use knotter_config::LoopAnchor;
 use knotter_core::domain::{normalize_email, TagName};
-use knotter_core::dto::{ContactDetailDto, ContactListItemDto, InteractionDto};
+use knotter_core::dto::{ContactDateDto, ContactDetailDto, ContactListItemDto, InteractionDto};
 use knotter_core::filter::parse_filter;
 use knotter_core::rules::compute_due_state;
 use knotter_core::rules::{ensure_future_timestamp_with_precision, schedule_next};
@@ -259,6 +260,18 @@ pub fn show_contact(ctx: &Context<'_>, args: ShowArgs) -> Result<()> {
         .collect();
 
     let emails = ctx.store.emails().list_emails_for_contact(&contact.id)?;
+    let dates = ctx.store.contact_dates().list_for_contact(contact.id)?;
+    let date_dtos: Vec<ContactDateDto> = dates
+        .iter()
+        .map(|date| ContactDateDto {
+            id: date.id,
+            kind: date.kind,
+            label: date.label.clone(),
+            month: date.month,
+            day: date.day,
+            year: date.year,
+        })
+        .collect();
     let detail = ContactDetailDto {
         id: contact.id,
         display_name: contact.display_name.clone(),
@@ -273,6 +286,7 @@ pub fn show_contact(ctx: &Context<'_>, args: ShowArgs) -> Result<()> {
         updated_at: contact.updated_at,
         archived_at: contact.archived_at,
         tags: tag_names.clone(),
+        dates: date_dtos,
         recent_interactions: interaction_dtos,
     };
 
@@ -329,6 +343,15 @@ pub fn show_contact(ctx: &Context<'_>, args: ShowArgs) -> Result<()> {
             .collect::<Vec<_>>()
             .join(" ");
         println!("tags: {}", tag_line);
+    }
+
+    if !detail.dates.is_empty() {
+        println!("dates:");
+        for date in &detail.dates {
+            let label = format_contact_date_label(date.kind, date.label.as_deref());
+            let date_str = format_date_parts(date.month, date.day, date.year);
+            println!("  {}  {}", label, date_str);
+        }
     }
 
     if detail.recent_interactions.is_empty() {
@@ -519,4 +542,19 @@ fn parse_tags(tags: &[String]) -> Result<Vec<TagName>> {
         parsed.push(tag);
     }
     Ok(parsed)
+}
+
+fn format_contact_date_label(
+    kind: knotter_core::domain::ContactDateKind,
+    label: Option<&str>,
+) -> String {
+    use knotter_core::domain::ContactDateKind;
+    match kind {
+        ContactDateKind::Birthday => "Birthday".to_string(),
+        ContactDateKind::NameDay => match label {
+            Some(value) => format!("Name day ({})", value),
+            None => "Name day".to_string(),
+        },
+        ContactDateKind::Custom => label.unwrap_or("Custom").to_string(),
+    }
 }

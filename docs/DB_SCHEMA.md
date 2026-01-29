@@ -282,6 +282,59 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_merge_candidates_pair_open
   WHERE status = 'open';
 ```
 
+## Migration: 007_contact_dates.sql
+
+Adds per-contact dates (birthdays, name days, custom reminders).
+
+```sql
+-- 007_contact_dates.sql
+
+CREATE TABLE IF NOT EXISTS contact_dates (
+  id TEXT PRIMARY KEY,                         -- UUID string
+  contact_id TEXT NOT NULL,
+  kind TEXT NOT NULL,                          -- birthday|name_day|custom
+  label TEXT NOT NULL DEFAULT '',
+  month INTEGER NOT NULL,
+  day INTEGER NOT NULL,
+  year INTEGER,                                -- optional year
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  source TEXT,
+  FOREIGN KEY(contact_id) REFERENCES contacts(id) ON DELETE CASCADE,
+  UNIQUE (contact_id, kind, label, month, day),
+  CHECK (month >= 1 AND month <= 12),
+  CHECK (day >= 1 AND day <= 31)
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_dates_contact_id
+  ON contact_dates(contact_id);
+
+CREATE INDEX IF NOT EXISTS idx_contact_dates_month_day
+  ON contact_dates(month, day);
+```
+
+## Migration: 008_contact_dates_custom_label.sql
+
+Enforces custom date labels at the database layer.
+
+```sql
+-- 008_contact_dates_custom_label.sql
+
+CREATE TRIGGER IF NOT EXISTS contact_dates_custom_label_insert
+BEFORE INSERT ON contact_dates
+WHEN NEW.kind = 'custom' AND length(trim(NEW.label)) = 0
+BEGIN
+  SELECT RAISE(ABORT, 'custom date label required');
+END;
+
+CREATE TRIGGER IF NOT EXISTS contact_dates_custom_label_update
+BEFORE UPDATE ON contact_dates
+WHEN NEW.kind = 'custom' AND length(trim(NEW.label)) = 0
+BEGIN
+  SELECT RAISE(ABORT, 'custom date label required');
+END;
+```
+
 ## Migration: 003_email_sync_uidvalidity.sql
 
 Adds uidvalidity to the email message dedupe key and reconciles legacy duplicate emails.

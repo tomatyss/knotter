@@ -5,7 +5,7 @@ use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragra
 use ratatui::Frame;
 
 use knotter_core::rules::DueState;
-use knotter_core::time::{format_timestamp_date, format_timestamp_datetime};
+use knotter_core::time::{format_date_parts, format_timestamp_date, format_timestamp_datetime};
 
 use crate::app::{
     App, ConfirmState, ContactForm, MergePicker, MergePickerFocus, Mode, NoteForm, ScheduleForm,
@@ -265,11 +265,6 @@ fn render_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
         return;
     };
 
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(9), Constraint::Min(4)])
-        .split(area);
-
     let emails = if !detail.emails.is_empty() {
         detail.emails.join(", ")
     } else {
@@ -328,6 +323,39 @@ fn render_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
         )));
     }
 
+    if !detail.dates.is_empty() {
+        info_lines.push(Line::from("Dates:"));
+        for date in &detail.dates {
+            let label = format_contact_date_label(date.kind, date.label.as_deref());
+            let date_str = format_date_parts(date.month, date.day, date.year);
+            info_lines.push(Line::from(format!("  {}  {}", label, date_str)));
+        }
+    }
+
+    let desired_height = (info_lines.len() as u16).saturating_add(2);
+    let min_interactions_height = 6u16;
+    let max_info_height = area
+        .height
+        .saturating_sub(min_interactions_height)
+        .max(3)
+        .min(area.height.saturating_sub(1));
+    let info_height = desired_height.min(max_info_height);
+    let max_info_lines = info_height.saturating_sub(2) as usize;
+    if info_lines.len() > max_info_lines {
+        if max_info_lines == 0 {
+            info_lines.clear();
+        } else if max_info_lines == 1 {
+            info_lines.truncate(1);
+        } else {
+            info_lines.truncate(max_info_lines - 1);
+            info_lines.push(Line::from("..."));
+        }
+    }
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(info_height), Constraint::Min(4)])
+        .split(area);
+
     let info =
         Paragraph::new(info_lines).block(Block::default().borders(Borders::ALL).title("Contact"));
     frame.render_widget(info, chunks[0]);
@@ -356,6 +384,21 @@ fn render_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
         .scroll((app.detail_scroll as u16, 0))
         .wrap(Wrap { trim: true });
     frame.render_widget(interactions, chunks[1]);
+}
+
+fn format_contact_date_label(
+    kind: knotter_core::domain::ContactDateKind,
+    label: Option<&str>,
+) -> String {
+    use knotter_core::domain::ContactDateKind;
+    match kind {
+        ContactDateKind::Birthday => "Birthday".to_string(),
+        ContactDateKind::NameDay => match label {
+            Some(value) => format!("Name day ({})", value),
+            None => "Name day".to_string(),
+        },
+        ContactDateKind::Custom => label.unwrap_or("Custom").to_string(),
+    }
 }
 
 fn render_contact_form(frame: &mut Frame<'_>, area: Rect, title: &str, form: &ContactForm) {

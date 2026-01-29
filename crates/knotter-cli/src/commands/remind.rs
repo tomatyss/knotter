@@ -1,11 +1,11 @@
 use crate::commands::{print_json, Context};
 use crate::error::invalid_input;
 use crate::notify::{Notifier, StdoutNotifier};
-use crate::util::{format_timestamp_date, local_offset, now_utc};
+use crate::util::{format_date_parts, format_timestamp_date, local_offset, now_utc};
 use anyhow::Result;
 use clap::Args;
 use knotter_config::{NotificationBackend, NotificationsEmailConfig};
-use knotter_core::dto::{ContactListItemDto, ReminderOutputDto};
+use knotter_core::dto::{ContactListItemDto, DateReminderItemDto, ReminderOutputDto};
 use knotter_core::rules::{compute_due_state, validate_soon_days};
 #[cfg(feature = "desktop-notify")]
 use tracing::warn;
@@ -71,7 +71,23 @@ pub fn remind(ctx: &Context<'_>, args: RemindArgs) -> Result<()> {
         });
     }
 
-    let output = ReminderOutputDto::from_items(items);
+    let mut output = ReminderOutputDto::from_items(items);
+    let dates_today = ctx
+        .store
+        .contact_dates()
+        .list_today(now, offset)?
+        .into_iter()
+        .map(|item| DateReminderItemDto {
+            contact_id: item.contact_id,
+            display_name: item.display_name,
+            kind: item.kind,
+            label: item.label,
+            month: item.month,
+            day: item.day,
+            year: item.year,
+        })
+        .collect();
+    output.dates_today = dates_today;
 
     if ctx.json {
         print_json(&output)?;
@@ -95,6 +111,7 @@ fn print_human(output: &ReminderOutputDto) {
     print_bucket("overdue", &output.overdue);
     print_bucket("today", &output.today);
     print_bucket("soon", &output.soon);
+    print_date_bucket("dates today", &output.dates_today);
 }
 
 fn print_bucket(label: &str, items: &[ContactListItemDto]) {
@@ -122,6 +139,22 @@ fn print_bucket(label: &str, items: &[ContactListItemDto]) {
         println!(
             "  {}  {}  {}{}",
             item.id, item.display_name, date, tag_suffix
+        );
+    }
+}
+
+fn print_date_bucket(label: &str, items: &[DateReminderItemDto]) {
+    if items.is_empty() {
+        return;
+    }
+
+    println!("{label}:");
+    for item in items {
+        let date = format_date_parts(item.month, item.day, item.year);
+        let label = format_date_label(item);
+        println!(
+            "  {}  {}  {}  {}",
+            item.contact_id, item.display_name, label, date
         );
     }
 }
@@ -227,12 +260,20 @@ fn notification_body(output: &ReminderOutputDto, max_names: usize) -> String {
             join_names(&output.soon, max_names)
         ));
     }
+    if !output.dates_today.is_empty() {
+        lines.push(format!(
+            "Dates today ({}): {}",
+            output.dates_today.len(),
+            join_date_names(&output.dates_today, max_names)
+        ));
+    }
     lines.join("\n")
 }
 
 #[cfg(feature = "email-notify")]
 fn email_subject(output: &ReminderOutputDto, prefix: &str) -> String {
-    let total = output.overdue.len() + output.today.len() + output.soon.len();
+    let total =
+        output.overdue.len() + output.today.len() + output.soon.len() + output.dates_today.len();
     let trimmed = prefix.trim();
     if total == 0 {
         if trimmed.is_empty() {
@@ -242,18 +283,20 @@ fn email_subject(output: &ReminderOutputDto, prefix: &str) -> String {
         }
     } else if trimmed.is_empty() {
         format!(
-            "knotter reminders (overdue {}, today {}, soon {})",
+            "knotter reminders (overdue {}, today {}, soon {}, dates {})",
             output.overdue.len(),
             output.today.len(),
-            output.soon.len()
+            output.soon.len(),
+            output.dates_today.len()
         )
     } else {
         format!(
-            "{} (overdue {}, today {}, soon {})",
+            "{} (overdue {}, today {}, soon {}, dates {})",
             trimmed,
             output.overdue.len(),
             output.today.len(),
-            output.soon.len()
+            output.soon.len(),
+            output.dates_today.len()
         )
     }
 }
@@ -264,6 +307,7 @@ fn email_body(output: &ReminderOutputDto) -> String {
     push_email_bucket(&mut lines, "Overdue", &output.overdue);
     push_email_bucket(&mut lines, "Today", &output.today);
     push_email_bucket(&mut lines, "Soon", &output.soon);
+    push_email_date_bucket(&mut lines, "Dates today", &output.dates_today);
     lines.join("\n")
 }
 
@@ -297,11 +341,63 @@ fn push_email_bucket(lines: &mut Vec<String>, label: &str, items: &[ContactListI
     lines.push(String::new());
 }
 
+#[cfg(feature = "email-notify")]
+fn push_email_date_bucket(lines: &mut Vec<String>, label: &str, items: &[DateReminderItemDto]) {
+    if items.is_empty() {
+        return;
+    }
+    lines.push(format!("{label} ({})", items.len()));
+    for item in items {
+        let date = format_date_parts(item.month, item.day, item.year);
+        let label = format_date_label(item);
+        lines.push(format!("  {}  {}  {}", item.display_name, label, date));
+    }
+    lines.push(String::new());
+}
+
+fn join_names(items: &[ContactListItemDto], max_names: usize) -> String {
+    let mut names = items
+        .iter()
+        .take(max_names)
+        .map(|item| item.display_name.clone())
+        .collect::<Vec<_>>();
+    let remaining = items.len().saturating_sub(max_names);
+    if remaining > 0 {
+        names.push(format!("+{} more", remaining));
+    }
+    names.join(", ")
+}
+
+fn join_date_names(items: &[DateReminderItemDto], max_names: usize) -> String {
+    let mut names = items
+        .iter()
+        .take(max_names)
+        .map(|item| format!("{} ({})", item.display_name, format_date_label(item)))
+        .collect::<Vec<_>>();
+    let remaining = items.len().saturating_sub(max_names);
+    if remaining > 0 {
+        names.push(format!("+{} more", remaining));
+    }
+    names.join(", ")
+}
+
+fn format_date_label(item: &DateReminderItemDto) -> String {
+    use knotter_core::domain::ContactDateKind;
+    match item.kind {
+        ContactDateKind::Birthday => "Birthday".to_string(),
+        ContactDateKind::NameDay => match item.label.as_deref() {
+            Some(label) => format!("Name day ({})", label),
+            None => "Name day".to_string(),
+        },
+        ContactDateKind::Custom => item.label.clone().unwrap_or_else(|| "Custom".to_string()),
+    }
+}
+
 #[cfg(all(test, feature = "email-notify"))]
 mod tests {
     use super::{email_body, email_subject, push_email_bucket};
-    use knotter_core::domain::ContactId;
-    use knotter_core::dto::{ContactListItemDto, ReminderOutputDto};
+    use knotter_core::domain::{ContactDateKind, ContactId};
+    use knotter_core::dto::{ContactListItemDto, DateReminderItemDto, ReminderOutputDto};
     use knotter_core::rules::DueState;
 
     fn item(name: &str, due_state: DueState, next: Option<i64>) -> ContactListItemDto {
@@ -321,6 +417,15 @@ mod tests {
             overdue: vec![item("Ada", DueState::Overdue, Some(1))],
             today: vec![item("Grace", DueState::Today, Some(2))],
             soon: vec![],
+            dates_today: vec![DateReminderItemDto {
+                contact_id: ContactId::new(),
+                display_name: "Tim".to_string(),
+                kind: ContactDateKind::Birthday,
+                label: None,
+                month: 1,
+                day: 2,
+                year: None,
+            }],
         };
 
         let subject = email_subject(&output, "Knotter");
@@ -328,6 +433,7 @@ mod tests {
         assert!(subject.contains("overdue 1"));
         assert!(subject.contains("today 1"));
         assert!(subject.contains("soon 0"));
+        assert!(subject.contains("dates 1"));
     }
 
     #[test]
@@ -336,13 +442,24 @@ mod tests {
             overdue: vec![item("Ada", DueState::Overdue, Some(1))],
             today: vec![],
             soon: vec![item("Grace", DueState::Soon, Some(2))],
+            dates_today: vec![DateReminderItemDto {
+                contact_id: ContactId::new(),
+                display_name: "Tim".to_string(),
+                kind: ContactDateKind::Custom,
+                label: Some("Anniversary".to_string()),
+                month: 2,
+                day: 14,
+                year: None,
+            }],
         };
 
         let body = email_body(&output);
         assert!(body.contains("Overdue (1)"));
         assert!(body.contains("Soon (1)"));
+        assert!(body.contains("Dates today (1)"));
         assert!(body.contains("Ada"));
         assert!(body.contains("Grace"));
+        assert!(body.contains("Anniversary"));
 
         let mut lines = Vec::new();
         push_email_bucket(&mut lines, "Overdue", &output.overdue);
@@ -350,15 +467,43 @@ mod tests {
     }
 }
 
-fn join_names(items: &[ContactListItemDto], max_names: usize) -> String {
-    let mut names = items
-        .iter()
-        .take(max_names)
-        .map(|item| item.display_name.clone())
-        .collect::<Vec<_>>();
-    let remaining = items.len().saturating_sub(max_names);
-    if remaining > 0 {
-        names.push(format!("+{} more", remaining));
+#[cfg(test)]
+mod reminder_tests {
+    use super::notification_body;
+    use knotter_core::domain::{ContactDateKind, ContactId};
+    use knotter_core::dto::{ContactListItemDto, DateReminderItemDto, ReminderOutputDto};
+    use knotter_core::rules::DueState;
+
+    fn item(name: &str, due_state: DueState, next: Option<i64>) -> ContactListItemDto {
+        ContactListItemDto {
+            id: ContactId::new(),
+            display_name: name.to_string(),
+            due_state,
+            next_touchpoint_at: next,
+            archived_at: None,
+            tags: vec![],
+        }
     }
-    names.join(", ")
+
+    #[test]
+    fn notification_body_includes_dates_today() {
+        let output = ReminderOutputDto {
+            overdue: vec![item("Ada", DueState::Overdue, Some(1))],
+            today: vec![],
+            soon: vec![],
+            dates_today: vec![DateReminderItemDto {
+                contact_id: ContactId::new(),
+                display_name: "Grace".to_string(),
+                kind: ContactDateKind::Birthday,
+                label: None,
+                month: 3,
+                day: 5,
+                year: None,
+            }],
+        };
+
+        let body = notification_body(&output, 5);
+        assert!(body.contains("Dates today (1)"));
+        assert!(body.contains("Grace (Birthday)"));
+    }
 }

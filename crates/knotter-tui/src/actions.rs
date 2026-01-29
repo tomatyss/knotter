@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::Result;
 use chrono::FixedOffset;
 use knotter_core::domain::{ContactId, TagName};
-use knotter_core::dto::{ContactDetailDto, ContactListItemDto, InteractionDto};
+use knotter_core::dto::{ContactDateDto, ContactDetailDto, ContactListItemDto, InteractionDto};
 use knotter_core::filter::ArchivedSelector;
 use knotter_core::rules::compute_due_state;
 use knotter_core::time::{local_offset, now_utc};
@@ -350,6 +350,18 @@ fn load_detail(store: &Store, contact_id: ContactId) -> Result<Option<ContactDet
             follow_up_at: interaction.follow_up_at,
         })
         .collect();
+    let dates = store.contact_dates().list_for_contact(contact_id)?;
+    let date_dtos = dates
+        .into_iter()
+        .map(|date| ContactDateDto {
+            id: date.id,
+            kind: date.kind,
+            label: date.label,
+            month: date.month,
+            day: date.day,
+            year: date.year,
+        })
+        .collect();
     let tags = tags
         .into_iter()
         .map(|tag| tag.name.as_str().to_string())
@@ -368,6 +380,7 @@ fn load_detail(store: &Store, contact_id: ContactId) -> Result<Option<ContactDet
         updated_at: contact.updated_at,
         archived_at: contact.archived_at,
         tags,
+        dates: date_dtos,
         recent_interactions,
     }))
 }

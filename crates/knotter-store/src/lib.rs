@@ -62,6 +62,10 @@ impl Store {
         repo::InteractionsRepo::new(&self.conn)
     }
 
+    pub fn contact_dates(&self) -> repo::ContactDatesRepo<'_> {
+        repo::ContactDatesRepo::new(&self.conn)
+    }
+
     pub fn merge_candidates(&self) -> repo::MergeCandidatesRepo<'_> {
         repo::MergeCandidatesRepo::new(&self.conn)
     }

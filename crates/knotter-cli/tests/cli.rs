@@ -1,5 +1,5 @@
 use assert_cmd::cargo::cargo_bin_cmd;
-use chrono::{Duration, Local};
+use chrono::{Duration, Local, TimeZone, Utc};
 use knotter_core::domain::ContactId;
 use knotter_core::domain::InteractionKind;
 use knotter_core::rules::{schedule_next, MAX_SOON_DAYS};
@@ -96,6 +96,20 @@ fn run_cmd_json_with_config(db_path: &Path, config_path: &Path, args: &[&str]) -
         .args(args)
         .output()
         .expect("run command");
+    assert!(output.status.success(), "command failed: {:?}", output);
+    serde_json::from_slice(&output.stdout).expect("parse json")
+}
+
+fn run_cmd_json_with_env(db_path: &Path, args: &[&str], envs: &[(&str, &str)]) -> Value {
+    let config_dir = TempDir::new().expect("temp config dir");
+    let mut cmd = cargo_bin_cmd!("knotter");
+    cmd.env("XDG_CONFIG_HOME", config_dir.path())
+        .args(["--db-path", db_path.to_str().expect("db path"), "--json"])
+        .args(args);
+    for (key, value) in envs {
+        cmd.env(key, value);
+    }
+    let output = cmd.output().expect("run command");
     assert!(output.status.success(), "command failed: {:?}", output);
     serde_json::from_slice(&output.stdout).expect("parse json")
 }
@@ -503,6 +517,46 @@ fn cli_remind_includes_soon_contact() {
     let soon = remind["soon"].as_array().expect("soon array");
     assert_eq!(soon.len(), 1);
     assert_eq!(soon[0]["id"], id);
+}
+
+#[test]
+fn cli_date_add_list_and_remind_includes_today() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+
+    run_cmd(&db_path, &["add-contact", "--name", "Ada Lovelace"]);
+    let list = run_cmd_json(&db_path, &["list"]);
+    let items = list.as_array().expect("array");
+    let id = items[0]["id"].as_str().expect("id").to_string();
+
+    let fixed_local = Local
+        .with_ymd_and_hms(2030, 1, 15, 12, 0, 0)
+        .single()
+        .expect("local time");
+    let date_str = fixed_local.format("%Y-%m-%d").to_string();
+    let now_env = fixed_local.with_timezone(&Utc).timestamp().to_string();
+
+    run_cmd(
+        &db_path,
+        &["date", "add", &id, "--kind", "birthday", "--on", &date_str],
+    );
+
+    let dates = run_cmd_json(&db_path, &["date", "ls", &id]);
+    let dates = dates.as_array().expect("dates array");
+    assert_eq!(dates.len(), 1);
+    assert_eq!(dates[0]["kind"], "birthday");
+
+    let remind = run_cmd_json_with_env(
+        &db_path,
+        &["remind"],
+        &[
+            ("KNOTTER_TEST_NOW_UTC", now_env.as_str()),
+            ("KNOTTER_ALLOW_TEST_NOW_UTC", "1"),
+        ],
+    );
+    let dates_today = remind["dates_today"].as_array().expect("dates_today array");
+    assert_eq!(dates_today.len(), 1);
+    assert_eq!(dates_today[0]["display_name"], "Ada Lovelace");
 }
 
 #[test]
