@@ -617,6 +617,49 @@ fn merge_contacts_inner(
         params![primary_id.to_string(), secondary_id.to_string()],
     )?;
 
+    conn.execute(
+        "UPDATE contact_dates
+         SET year = (
+             SELECT d2.year FROM contact_dates d2
+             WHERE d2.contact_id = ?2
+               AND d2.kind = contact_dates.kind
+               AND d2.label = contact_dates.label
+               AND d2.month = contact_dates.month
+               AND d2.day = contact_dates.day
+         ),
+             updated_at = ?3
+         WHERE contact_id = ?1
+           AND year IS NULL
+           AND EXISTS (
+             SELECT 1 FROM contact_dates d2
+             WHERE d2.contact_id = ?2
+               AND d2.kind = contact_dates.kind
+               AND d2.label = contact_dates.label
+               AND d2.month = contact_dates.month
+               AND d2.day = contact_dates.day
+               AND d2.year IS NOT NULL
+           );",
+        params![primary_id.to_string(), secondary_id.to_string(), now_utc],
+    )?;
+
+    conn.execute(
+        "DELETE FROM contact_dates
+         WHERE contact_id = ?1
+           AND EXISTS (
+             SELECT 1 FROM contact_dates d2
+             WHERE d2.contact_id = ?2
+               AND d2.kind = contact_dates.kind
+               AND d2.label = contact_dates.label
+               AND d2.month = contact_dates.month
+               AND d2.day = contact_dates.day
+           );",
+        params![secondary_id.to_string(), primary_id.to_string()],
+    )?;
+    conn.execute(
+        "UPDATE contact_dates SET contact_id = ?1 WHERE contact_id = ?2;",
+        params![primary_id.to_string(), secondary_id.to_string()],
+    )?;
+
     let primary_email =
         merge_contact_emails(conn, now_utc, &primary_id, &secondary_id, prefer_secondary)?;
     crate::repo::emails::EmailsRepo::new(conn)

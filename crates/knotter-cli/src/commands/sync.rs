@@ -6,10 +6,11 @@ use clap::{ArgAction, Args, Subcommand};
 use knotter_config::{ContactSourceKind, EmailAccountTls, EmailMergePolicy, MacosSourceConfig};
 use knotter_core::domain::{normalize_email, Contact, ContactId, InteractionKind, TagName};
 use knotter_core::dto::{
-    ExportContactDto, ExportInteractionDto, ExportMetadataDto, ExportSnapshotDto,
+    ContactDateDto, ExportContactDto, ExportInteractionDto, ExportMetadataDto, ExportSnapshotDto,
 };
 use knotter_store::error::StoreErrorKind;
 use knotter_store::repo::contacts::{ContactNew, ContactUpdate};
+use knotter_store::repo::ContactDateNew;
 use knotter_store::repo::EmailMessageRecord;
 use knotter_store::repo::EmailOps;
 use knotter_sync::carddav::CardDavSource;
@@ -644,7 +645,8 @@ pub fn export_vcf(ctx: &Context<'_>, args: ExportVcfArgs) -> Result<()> {
     let contacts = load_export_contacts(ctx, false)?;
     let tags = load_tags(ctx, &contacts)?;
     let emails = load_emails(ctx, &contacts)?;
-    let data = vcf::export_vcf(&contacts, &tags, &emails)?;
+    let dates = load_contact_dates(ctx, &contacts)?;
+    let data = vcf::export_vcf(&contacts, &tags, &emails, &dates)?;
     write_export(
         ctx,
         ExportReport {
@@ -693,6 +695,7 @@ pub fn export_json(ctx: &Context<'_>, args: ExportJsonArgs) -> Result<()> {
     let ids: Vec<ContactId> = contacts.iter().map(|contact| contact.id).collect();
     let mut tags = load_tags(ctx, &contacts)?;
     let mut emails = load_emails(ctx, &contacts)?;
+    let mut dates = load_contact_dates(ctx, &contacts)?;
     let mut interactions = ctx.store.interactions().list_for_contacts(&ids)?;
 
     let export_contacts: Vec<ExportContactDto> = contacts
@@ -700,6 +703,18 @@ pub fn export_json(ctx: &Context<'_>, args: ExportJsonArgs) -> Result<()> {
         .map(|contact| {
             let tags = tags.remove(&contact.id).unwrap_or_default();
             let emails = emails.remove(&contact.id).unwrap_or_default();
+            let dates = dates.remove(&contact.id).unwrap_or_default();
+            let dates = dates
+                .into_iter()
+                .map(|date| ContactDateDto {
+                    id: date.id,
+                    kind: date.kind,
+                    label: date.label,
+                    month: date.month,
+                    day: date.day,
+                    year: date.year,
+                })
+                .collect();
             let interactions = interactions.remove(&contact.id).unwrap_or_default();
             let interactions = interactions
                 .into_iter()
@@ -727,6 +742,7 @@ pub fn export_json(ctx: &Context<'_>, args: ExportJsonArgs) -> Result<()> {
                 updated_at: contact.updated_at,
                 archived_at: contact.archived_at,
                 tags,
+                dates,
                 interactions,
             }
         })
@@ -789,6 +805,23 @@ fn load_emails(
     ctx.store
         .emails()
         .list_emails_for_contacts(&ids)
+        .map_err(Into::into)
+}
+
+fn load_contact_dates(
+    ctx: &Context<'_>,
+    contacts: &[knotter_core::domain::Contact],
+) -> Result<
+    std::collections::HashMap<
+        knotter_core::domain::ContactId,
+        Vec<knotter_core::domain::ContactDate>,
+    >,
+> {
+    let ids: Vec<knotter_core::domain::ContactId> =
+        contacts.iter().map(|contact| contact.id).collect();
+    ctx.store
+        .contact_dates()
+        .list_for_contacts(&ids)
         .map_err(Into::into)
 }
 
@@ -1342,6 +1375,41 @@ fn apply_extra_tags(mut contact: vcf::VcfContact, extra_tags: &[TagName]) -> vcf
     contact
 }
 
+fn apply_contact_dates(
+    ctx: &Context<'_>,
+    now_utc: i64,
+    contact_id: ContactId,
+    dates: Vec<vcf::ContactDateInput>,
+) -> Result<()> {
+    apply_contact_dates_repo(ctx.store.contact_dates(), now_utc, contact_id, dates)
+}
+
+fn apply_contact_dates_repo(
+    repo: knotter_store::repo::ContactDatesRepo<'_>,
+    now_utc: i64,
+    contact_id: ContactId,
+    dates: Vec<vcf::ContactDateInput>,
+) -> Result<()> {
+    if dates.is_empty() {
+        return Ok(());
+    }
+    for date in dates {
+        repo.upsert_preserve_year(
+            now_utc,
+            ContactDateNew {
+                contact_id,
+                kind: date.kind,
+                label: date.label,
+                month: date.month,
+                day: date.day,
+                year: date.year,
+                source: Some("vcf".to_string()),
+            },
+        )?;
+    }
+    Ok(())
+}
+
 fn resolve_password(
     password_env: Option<&str>,
     password_stdin: bool,
@@ -1455,8 +1523,18 @@ fn apply_vcf_contact(
             return Ok(ImportOutcome::Updated);
         }
 
+        let vcf::VcfContact {
+            display_name,
+            emails,
+            phone,
+            tags,
+            next_touchpoint_at,
+            cadence_days,
+            dates,
+        } = contact;
+
         let mut filtered_emails = Vec::new();
-        for email in &contact.emails {
+        for email in &emails {
             if filtered_emails.contains(email) {
                 continue;
             }
@@ -1469,14 +1547,14 @@ fn apply_vcf_contact(
         }
         let primary = filtered_emails.first().cloned();
         let update = ContactUpdate {
-            display_name: Some(contact.display_name),
+            display_name: Some(display_name),
             email: primary.clone().map(Some),
             email_source: Some("vcf".to_string()),
-            phone: contact.phone.map(Some),
+            phone: phone.map(Some),
             handle: None,
             timezone: None,
-            next_touchpoint_at: contact.next_touchpoint_at.map(Some),
-            cadence_days: contact.cadence_days.map(Some),
+            next_touchpoint_at: next_touchpoint_at.map(Some),
+            cadence_days: cadence_days.map(Some),
             archived_at: None,
         };
         let email_ops = if filtered_emails.is_empty() {
@@ -1493,7 +1571,8 @@ fn apply_vcf_contact(
             ctx.store
                 .contacts()
                 .update_with_email_ops(now_utc, existing.id, update, email_ops)?;
-        merge_tags(ctx, &updated.id, contact.tags)?;
+        merge_tags(ctx, &updated.id, tags)?;
+        apply_contact_dates(ctx, now_utc, updated.id, dates)?;
         return Ok(ImportOutcome::Updated);
     }
 
@@ -1501,24 +1580,34 @@ fn apply_vcf_contact(
         return Ok(ImportOutcome::Created);
     }
 
-    let primary = contact.emails.first().cloned();
+    let vcf::VcfContact {
+        display_name,
+        emails,
+        phone,
+        tags,
+        next_touchpoint_at,
+        cadence_days,
+        dates,
+    } = contact;
+    let primary = emails.first().cloned();
     let new_contact = ContactNew {
-        display_name: contact.display_name,
+        display_name,
         email: primary.clone(),
-        phone: contact.phone,
+        phone,
         handle: None,
         timezone: None,
-        next_touchpoint_at: contact.next_touchpoint_at,
-        cadence_days: contact.cadence_days,
+        next_touchpoint_at,
+        cadence_days,
         archived_at: None,
     };
-    ctx.store.contacts().create_with_emails_and_tags(
+    let created = ctx.store.contacts().create_with_emails_and_tags(
         now_utc,
         new_contact,
-        contact.tags,
-        contact.emails,
+        tags,
+        emails,
         Some("vcf"),
     )?;
+    apply_contact_dates(ctx, now_utc, created.id, dates)?;
     Ok(ImportOutcome::Created)
 }
 
@@ -1538,6 +1627,7 @@ fn stage_merge_candidate(
         tags,
         next_touchpoint_at,
         cadence_days,
+        dates,
     } = contact;
 
     let emails_repo = knotter_store::repo::EmailsRepo::new(ctx.store.connection());
@@ -1638,6 +1728,12 @@ fn stage_merge_candidate(
         tags,
         staged_emails,
         Some("vcf"),
+    )?;
+    apply_contact_dates_repo(
+        knotter_store::repo::ContactDatesRepo::new(&tx),
+        now_utc,
+        created.id,
+        dates,
     )?;
 
     let mut candidates_created = 0;
@@ -1971,6 +2067,7 @@ mod tests {
             tags: Vec::new(),
             next_touchpoint_at: None,
             cadence_days: None,
+            dates: Vec::new(),
         };
 
         let outcome = apply_vcf_contact(&ctx, "test", now + 10, contact, ImportMode::Apply)
@@ -2045,6 +2142,7 @@ mod tests {
             tags: Vec::new(),
             next_touchpoint_at: None,
             cadence_days: None,
+            dates: Vec::new(),
         };
 
         let outcome = apply_vcf_contact(&ctx, "test", now + 10, contact, ImportMode::DryRun)

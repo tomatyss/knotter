@@ -68,6 +68,14 @@ Add an interaction:
 knotter add-note <id> --kind call --note "Caught up after the conference"
 ```
 
+Add important dates:
+
+```
+knotter date add <id> --kind birthday --on 1990-02-14
+knotter date add <id> --kind custom --label "wife birthday" --on 02-14
+knotter date ls <id>
+```
+
 Record a touch and reschedule in one step:
 
 ```

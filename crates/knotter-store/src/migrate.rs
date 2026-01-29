@@ -23,6 +23,14 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "006_contact_merge_candidates.sql",
         include_str!("../migrations/006_contact_merge_candidates.sql"),
     ),
+    (
+        "007_contact_dates.sql",
+        include_str!("../migrations/007_contact_dates.sql"),
+    ),
+    (
+        "008_contact_dates_custom_label.sql",
+        include_str!("../migrations/008_contact_dates_custom_label.sql"),
+    ),
 ];
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {

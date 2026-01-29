@@ -1,4 +1,4 @@
-use crate::domain::{ContactId, InteractionId};
+use crate::domain::{ContactDateId, ContactDateKind, ContactId, InteractionId};
 use crate::rules::DueState;
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +22,16 @@ pub struct InteractionDto {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContactDateDto {
+    pub id: ContactDateId,
+    pub kind: ContactDateKind,
+    pub label: Option<String>,
+    pub month: u8,
+    pub day: u8,
+    pub year: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContactDetailDto {
     pub id: ContactId,
     pub display_name: String,
@@ -36,6 +46,7 @@ pub struct ContactDetailDto {
     pub updated_at: i64,
     pub archived_at: Option<i64>,
     pub tags: Vec<String>,
+    pub dates: Vec<ContactDateDto>,
     pub recent_interactions: Vec<InteractionDto>,
 }
 
@@ -72,7 +83,19 @@ pub struct ExportContactDto {
     pub updated_at: i64,
     pub archived_at: Option<i64>,
     pub tags: Vec<String>,
+    pub dates: Vec<ContactDateDto>,
     pub interactions: Vec<ExportInteractionDto>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DateReminderItemDto {
+    pub contact_id: ContactId,
+    pub display_name: String,
+    pub kind: ContactDateKind,
+    pub label: Option<String>,
+    pub month: u8,
+    pub day: u8,
+    pub year: Option<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -86,6 +109,7 @@ pub struct ReminderOutputDto {
     pub overdue: Vec<ContactListItemDto>,
     pub today: Vec<ContactListItemDto>,
     pub soon: Vec<ContactListItemDto>,
+    pub dates_today: Vec<DateReminderItemDto>,
 }
 
 impl ReminderOutputDto {
@@ -94,6 +118,7 @@ impl ReminderOutputDto {
             overdue: Vec::new(),
             today: Vec::new(),
             soon: Vec::new(),
+            dates_today: Vec::new(),
         };
 
         for item in items {
@@ -109,7 +134,10 @@ impl ReminderOutputDto {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.overdue.is_empty() && self.today.is_empty() && self.soon.is_empty()
+        self.overdue.is_empty()
+            && self.today.is_empty()
+            && self.soon.is_empty()
+            && self.dates_today.is_empty()
     }
 }
 
@@ -169,6 +197,7 @@ mod tests {
         assert_eq!(output.overdue.len(), 1);
         assert_eq!(output.today.len(), 1);
         assert_eq!(output.soon.len(), 1);
+        assert!(output.dates_today.is_empty());
         assert_eq!(output.overdue[0].display_name, "Ada");
         assert_eq!(output.today[0].display_name, "Grace");
         assert_eq!(output.soon[0].display_name, "Tim");

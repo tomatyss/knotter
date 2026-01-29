@@ -1,6 +1,6 @@
 use chrono::{
-    DateTime, FixedOffset, Local, NaiveDate, NaiveDateTime, NaiveTime, Offset, TimeZone, Timelike,
-    Utc,
+    DateTime, Datelike, FixedOffset, Local, NaiveDate, NaiveDateTime, NaiveTime, Offset, TimeZone,
+    Timelike, Utc,
 };
 use thiserror::Error;
 
@@ -26,6 +26,8 @@ pub enum TimeParseError {
     InvalidDateTime,
     #[error("invalid date format: expected YYYY-MM-DD")]
     InvalidDateFormat,
+    #[error("invalid date format: expected YYYY-MM-DD, YYYYMMDD, MM-DD, --MMDD, or --MM-DD")]
+    InvalidDatePartsFormat,
     #[error("invalid time format: expected HH:MM")]
     InvalidTimeFormat,
     #[error("ambiguous local time: {0}")]
@@ -33,6 +35,17 @@ pub enum TimeParseError {
 }
 
 pub fn now_utc() -> i64 {
+    if cfg!(debug_assertions) {
+        if let Ok(allow) = std::env::var("KNOTTER_ALLOW_TEST_NOW_UTC") {
+            if allow.trim() == "1" || allow.trim().eq_ignore_ascii_case("true") {
+                if let Ok(raw) = std::env::var("KNOTTER_TEST_NOW_UTC") {
+                    if let Ok(parsed) = raw.trim().parse::<i64>() {
+                        return parsed;
+                    }
+                }
+            }
+        }
+    }
     Utc::now().timestamp()
 }
 
@@ -100,6 +113,83 @@ pub fn parse_local_date_time_with_precision(
     Ok((local_to_utc_timestamp(naive)?, precision))
 }
 
+pub fn parse_date_parts(input: &str) -> Result<(u8, u8, Option<i32>), TimeParseError> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err(TimeParseError::Empty);
+    }
+
+    if let Ok(date) = NaiveDate::parse_from_str(trimmed, "%Y-%m-%d") {
+        return Ok((date.month() as u8, date.day() as u8, Some(date.year())));
+    }
+
+    if trimmed.len() == 8 && trimmed.chars().all(|ch| ch.is_ascii_digit()) {
+        let year = trimmed[0..4]
+            .parse::<i32>()
+            .map_err(|_| TimeParseError::InvalidDate)?;
+        let month = trimmed[4..6]
+            .parse::<u8>()
+            .map_err(|_| TimeParseError::InvalidDate)?;
+        let day = trimmed[6..8]
+            .parse::<u8>()
+            .map_err(|_| TimeParseError::InvalidDate)?;
+        if NaiveDate::from_ymd_opt(year, month.into(), day.into()).is_none() {
+            return Err(TimeParseError::InvalidDate);
+        }
+        return Ok((month, day, Some(year)));
+    }
+
+    if let Some(rest) = trimmed.strip_prefix("--") {
+        let (month, day) = match rest {
+            value if value.len() == 4 && value.chars().all(|ch| ch.is_ascii_digit()) => {
+                let month = value[0..2]
+                    .parse::<u8>()
+                    .map_err(|_| TimeParseError::InvalidDate)?;
+                let day = value[2..4]
+                    .parse::<u8>()
+                    .map_err(|_| TimeParseError::InvalidDate)?;
+                (month, day)
+            }
+            value if value.len() == 5 && value.as_bytes()[2] == b'-' => {
+                let month = value[0..2]
+                    .parse::<u8>()
+                    .map_err(|_| TimeParseError::InvalidDate)?;
+                let day = value[3..5]
+                    .parse::<u8>()
+                    .map_err(|_| TimeParseError::InvalidDate)?;
+                (month, day)
+            }
+            _ => return Err(TimeParseError::InvalidDatePartsFormat),
+        };
+        if NaiveDate::from_ymd_opt(2000, month.into(), day.into()).is_none() {
+            return Err(TimeParseError::InvalidDate);
+        }
+        return Ok((month, day, None));
+    }
+
+    if let Some((month_raw, day_raw)) = trimmed.split_once('-') {
+        let month = month_raw
+            .parse::<u8>()
+            .map_err(|_| TimeParseError::InvalidDate)?;
+        let day = day_raw
+            .parse::<u8>()
+            .map_err(|_| TimeParseError::InvalidDate)?;
+        if NaiveDate::from_ymd_opt(2000, month.into(), day.into()).is_none() {
+            return Err(TimeParseError::InvalidDate);
+        }
+        return Ok((month, day, None));
+    }
+
+    Err(TimeParseError::InvalidDatePartsFormat)
+}
+
+pub fn format_date_parts(month: u8, day: u8, year: Option<i32>) -> String {
+    match year {
+        Some(year) => format!("{year:04}-{month:02}-{day:02}"),
+        None => format!("{month:02}-{day:02}"),
+    }
+}
+
 pub fn format_timestamp_date(ts: i64) -> String {
     let dt = DateTime::<Utc>::from_timestamp(ts, 0)
         .unwrap_or_else(|| DateTime::<Utc>::from_timestamp(0, 0).unwrap())
@@ -143,9 +233,10 @@ fn local_to_utc_timestamp(naive: NaiveDateTime) -> Result<i64, TimeParseError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        format_timestamp_date, format_timestamp_date_or_datetime, format_timestamp_datetime,
-        format_timestamp_time, parse_local_date_time, parse_local_date_time_with_precision,
-        parse_local_timestamp, parse_local_timestamp_with_precision, TimeParseError, TimePrecision,
+        format_date_parts, format_timestamp_date, format_timestamp_date_or_datetime,
+        format_timestamp_datetime, format_timestamp_time, parse_date_parts, parse_local_date_time,
+        parse_local_date_time_with_precision, parse_local_timestamp,
+        parse_local_timestamp_with_precision, TimeParseError, TimePrecision,
     };
     use chrono::{Local, TimeZone, Utc};
 
@@ -224,5 +315,20 @@ mod tests {
             format_timestamp_date_or_datetime(ts),
             local.format("%Y-%m-%d %H:%M").to_string()
         );
+    }
+
+    #[test]
+    fn parse_date_parts_accepts_year_and_month_day() {
+        assert_eq!(parse_date_parts("2030-01-15").unwrap(), (1, 15, Some(2030)));
+        assert_eq!(parse_date_parts("01-15").unwrap(), (1, 15, None));
+        assert_eq!(parse_date_parts("--0115").unwrap(), (1, 15, None));
+        assert_eq!(parse_date_parts("--01-15").unwrap(), (1, 15, None));
+        assert_eq!(parse_date_parts("20300115").unwrap(), (1, 15, Some(2030)));
+    }
+
+    #[test]
+    fn format_date_parts_formats_consistently() {
+        assert_eq!(format_date_parts(1, 5, Some(2030)), "2030-01-05");
+        assert_eq!(format_date_parts(1, 5, None), "01-05");
     }
 }

@@ -40,6 +40,16 @@ Output: JSON object matching `ReminderOutputDto`:
 - `overdue` (array of `ContactListItemDto`)
 - `today` (array of `ContactListItemDto`)
 - `soon` (array of `ContactListItemDto`)
+- `dates_today` (array of `DateReminderItemDto`)
+
+`DateReminderItemDto` fields:
+- `contact_id` (string UUID)
+- `display_name` (string)
+- `kind` (string enum: `birthday`, `name_day`, `custom`)
+- `label` (string|null)
+- `month` (number)
+- `day` (number)
+- `year` (number|null)
 
 Note: `due_state` and reminder buckets depend on the current `due_soon_days`
 setting (CLI flag or config default). In JSON mode, notifications only run when
@@ -59,6 +69,7 @@ Output: JSON object matching `ContactDetailDto`:
 - `id`, `display_name`, `email` (primary), `emails` (array), `phone`, `handle`, `timezone`
 - `next_touchpoint_at`, `cadence_days`, `created_at`, `updated_at`, `archived_at`
 - `tags` (array of strings)
+- `dates` (array of `ContactDateDto`)
 - `recent_interactions` (array of `InteractionDto`)
 
 `InteractionDto` fields:
@@ -67,6 +78,14 @@ Output: JSON object matching `ContactDetailDto`:
 - `kind` (string, one of `call`, `text`, `hangout`, `email`, or `other:<label>`)
 - `note` (string)
 - `follow_up_at` (number|null)
+
+`ContactDateDto` fields:
+- `id` (string UUID)
+- `kind` (string enum: `birthday`, `name_day`, `custom`)
+- `label` (string|null)
+- `month` (number)
+- `day` (number)
+- `year` (number|null)
 
 ### `knotter tag ls --json`
 
@@ -81,6 +100,20 @@ Output: JSON object containing:
 
 - `id` (string UUID)
 - `tag` (string, normalized)
+
+### `knotter date add --json`
+
+Output: JSON object matching `ContactDateDto`.
+
+### `knotter date ls --json`
+
+Output: JSON array of `ContactDateDto`.
+
+### `knotter date rm --json`
+
+Output: JSON object containing:
+
+- `id` (string UUID)
 
 ### `knotter loops apply --json`
 
@@ -198,6 +231,7 @@ Snapshot JSON output:
   - contact fields: `id`, `display_name`, `email` (primary), `emails` (array), `phone`, `handle`, `timezone`,
     `next_touchpoint_at`, `cadence_days`, `created_at`, `updated_at`, `archived_at`
   - `tags` (array of strings)
+  - `dates` (array of `ContactDateDto`)
   - `interactions` (array of objects):
     - `id`, `occurred_at`, `created_at`, `kind`, `note`, `follow_up_at`
     - ordered by `occurred_at` descending

@@ -1,5 +1,7 @@
+use knotter_core::domain::ContactDateKind;
 use knotter_store::repo::{
-    ContactMergeOptions, ContactNew, InteractionNew, MergeCandidateCreate, MergeCandidateStatus,
+    ContactDateNew, ContactMergeOptions, ContactNew, InteractionNew, MergeCandidateCreate,
+    MergeCandidateStatus,
 };
 use knotter_store::Store;
 
@@ -313,6 +315,96 @@ fn merge_contacts_resolves_open_merge_candidates_for_secondary() {
         .expect("get secondary candidate")
         .expect("missing secondary candidate");
     assert_eq!(dismissed.status, MergeCandidateStatus::Dismissed);
+}
+
+#[test]
+fn merge_contacts_dedupes_contact_dates() {
+    let store = Store::open_in_memory().expect("open");
+    store.migrate().expect("migrate");
+    let now = 1_700_000_000;
+
+    let primary = store
+        .contacts()
+        .create(
+            now,
+            ContactNew {
+                display_name: "Primary".to_string(),
+                email: None,
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create primary");
+    let secondary = store
+        .contacts()
+        .create(
+            now,
+            ContactNew {
+                display_name: "Secondary".to_string(),
+                email: None,
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create secondary");
+
+    store
+        .contact_dates()
+        .upsert(
+            now,
+            ContactDateNew {
+                contact_id: primary.id,
+                kind: ContactDateKind::Birthday,
+                label: None,
+                month: 1,
+                day: 1,
+                year: None,
+                source: None,
+            },
+        )
+        .expect("add primary date");
+    store
+        .contact_dates()
+        .upsert(
+            now,
+            ContactDateNew {
+                contact_id: secondary.id,
+                kind: ContactDateKind::Birthday,
+                label: None,
+                month: 1,
+                day: 1,
+                year: Some(1990),
+                source: None,
+            },
+        )
+        .expect("add secondary date");
+
+    store
+        .contacts()
+        .merge_contacts(
+            now,
+            primary.id,
+            secondary.id,
+            ContactMergeOptions::default(),
+        )
+        .expect("merge contacts");
+
+    let dates = store
+        .contact_dates()
+        .list_for_contact(primary.id)
+        .expect("list dates");
+    assert_eq!(dates.len(), 1);
+    assert_eq!(dates[0].month, 1);
+    assert_eq!(dates[0].day, 1);
+    assert_eq!(dates[0].year, Some(1990));
 }
 
 #[test]

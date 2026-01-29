@@ -139,6 +139,7 @@ Define newtypes for IDs to prevent mixing them up:
 - `ContactId(Uuid)`
 - `InteractionId(Uuid)`
 - `TagId(Uuid)`
+- `ContactDateId(Uuid)`
 
 #### Time representation
 Use UTC timestamps in storage and business logic.
@@ -212,6 +213,27 @@ Normalization rules (must be identical everywhere):
 - replace spaces with `-`
 - collapse repeated `-`
 - reject empty after normalization
+
+#### ContactDate
+Contact dates capture birthdays and other annual milestones.
+
+Core fields:
+- `id: ContactDateId`
+- `contact_id: ContactId`
+- `kind: ContactDateKind` (`birthday`, `name_day`, `custom`)
+- `label: Option<String>` (required for `custom`)
+- `month: u8` (1-12)
+- `day: u8` (1-31, validated against month)
+- `year: Option<i32>` (optional, used for birthdays/notes)
+- `created_at: i64`
+- `updated_at: i64`
+- `source: Option<String>` (cli/tui/vcf/etc)
+
+Invariants:
+- `custom` dates require a non-empty label.
+- Month/day must be a valid calendar day; `Feb 29` is allowed without a year.
+- Date occurrences are evaluated in the local machine timezone (MVP).
+- On non-leap years, `Feb 29` occurrences are surfaced on `Feb 28`.
 
 ### 4.3 Business rules
 
@@ -465,6 +487,8 @@ existing vCard import pipeline. This keeps dedupe logic and mapping consistent.
 
   * `X-KNOTTER-NEXT-TOUCHPOINT: <unix or iso datetime>`
   * `X-KNOTTER-CADENCE-DAYS: <int>`
+  * `BDAY: <YYYY-MM-DD, YYYYMMDD, --MMDD, or --MM-DD>` (birthday when available)
+  * `X-KNOTTER-DATE: <kind>|<date>|<label>` (name-day/custom dates and extra/labeled birthdays)
 
 Round-trip expectations must be documented:
 
@@ -537,6 +561,7 @@ knotter supports reminders without requiring a daemon.
   * overdue
   * due today
   * due soon (configurable days)
+  * dates today (birthdays/custom dates that occur on the local date)
 * “Due soon” threshold is config-driven (default 7).
 
 ### 8.2 Notification interface

@@ -2,6 +2,11 @@
 
 ## v0.3.0 (2026-01-27)
 
+### Contact Dates
+- Added per-contact dates (birthday/name day/custom) with CLI commands and JSON export.
+- `knotter remind` now includes a `dates_today` bucket.
+- vCard import/export supports `BDAY` and `X-KNOTTER-DATE` fields.
+
 ### Merge Candidates
 - New merge candidate workflow with storage, CLI `knotter merge` commands, and TUI merge list/actions.
 - Import/sync now stages ambiguous matches (duplicate emails or name collisions) as merge candidates instead of skipping.

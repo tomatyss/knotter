@@ -1,10 +1,10 @@
 use crate::error::invalid_input;
 use anyhow::Result;
-use knotter_core::domain::{ContactId, InteractionKind};
+use knotter_core::domain::{ContactDateId, ContactId, InteractionKind};
 use knotter_core::rules::DueState;
 pub use knotter_core::time::{
-    format_timestamp_date, format_timestamp_datetime, local_offset, now_utc,
-    parse_local_date_time_with_precision, parse_local_timestamp,
+    format_date_parts, format_timestamp_date, format_timestamp_datetime, local_offset, now_utc,
+    parse_date_parts, parse_local_date_time_with_precision, parse_local_timestamp,
     parse_local_timestamp_with_precision,
 };
 use std::str::FromStr;
@@ -58,4 +58,12 @@ pub fn parse_contact_id(raw: &str) -> Result<ContactId> {
         return Err(invalid_input("contact id cannot be empty"));
     }
     ContactId::from_str(trimmed).map_err(|_| invalid_input("invalid contact id"))
+}
+
+pub fn parse_contact_date_id(raw: &str) -> Result<ContactDateId> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(invalid_input("contact date id cannot be empty"));
+    }
+    ContactDateId::from_str(trimmed).map_err(|_| invalid_input("invalid contact date id"))
 }

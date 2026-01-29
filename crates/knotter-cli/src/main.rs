@@ -10,8 +10,8 @@ use std::process::ExitCode;
 use tracing::debug;
 
 use crate::commands::{
-    backup, completions, contacts, interactions, loops, merge, remind, schedule, sync, tags, tui,
-    Context,
+    backup, completions, contacts, dates, interactions, loops, merge, remind, schedule, sync, tags,
+    tui, Context,
 };
 use crate::error::{exit_code_for, report_error};
 use knotter_config as config;
@@ -50,6 +50,8 @@ enum Command {
     UnarchiveContact(contacts::UnarchiveArgs),
     #[command(subcommand)]
     Tag(tags::TagCommand),
+    #[command(subcommand)]
+    Date(dates::DateCommand),
     #[command(subcommand)]
     Loops(loops::LoopCommand),
     #[command(subcommand)]
@@ -140,6 +142,11 @@ fn run(cli: Cli) -> Result<()> {
                     tags::TagCommand::Add(args) => tags::add_tag(&ctx, args),
                     tags::TagCommand::Rm(args) => tags::remove_tag(&ctx, args),
                     tags::TagCommand::Ls(args) => tags::list_tags(&ctx, args),
+                },
+                Command::Date(cmd) => match cmd {
+                    dates::DateCommand::Add(args) => dates::add_date(&ctx, args),
+                    dates::DateCommand::Ls(args) => dates::list_dates(&ctx, args),
+                    dates::DateCommand::Rm(args) => dates::remove_date(&ctx, args),
                 },
                 Command::Loops(cmd) => match cmd {
                     loops::LoopCommand::Apply(args) => loops::apply_loops(&ctx, args),

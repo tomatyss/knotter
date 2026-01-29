@@ -140,12 +140,14 @@ knotter export vcf [--out <file>]
 - Optional metadata:
   - `X-KNOTTER-NEXT-TOUCHPOINT` (unix seconds UTC)
   - `X-KNOTTER-CADENCE-DAYS`
+  - `BDAY` (birthday, `YYYY-MM-DD`, `YYYYMMDD`, `--MMDD`, or `--MM-DD`)
+  - `X-KNOTTER-DATE` (`kind|date|label` for name-day/custom dates and extra/labeled birthdays)
 
 Archived contacts are excluded from exports.
 
 ### Round-trip notes
 
-- Only `FN`, `EMAIL`, `TEL`, and `CATEGORIES` are exported; other vCard fields are ignored.
+- Only `FN`, `EMAIL`, `TEL`, `CATEGORIES`, `BDAY`, and `X-KNOTTER-DATE` are exported; other vCard fields are ignored.
 - `X-KNOTTER-*` fields are specific to knotter and may be dropped by other apps.
 
 ## JSON export (full snapshot)

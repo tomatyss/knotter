@@ -1,3 +1,4 @@
+pub mod contact_dates;
 pub mod contacts;
 pub mod email_sync;
 pub mod emails;
@@ -5,6 +6,7 @@ pub mod interactions;
 pub mod merge_candidates;
 pub mod tags;
 
+pub use contact_dates::{ContactDateNew, ContactDateOccurrence, ContactDatesRepo};
 pub use contacts::{
     ContactMergeOptions, ContactNew, ContactUpdate, ContactsRepo, EmailOps,
     MergeArchivedPreference, MergePreference, MergeTouchpointPreference,
