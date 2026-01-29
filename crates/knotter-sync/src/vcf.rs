@@ -211,9 +211,8 @@ pub fn export_vcf(
                 .iter()
                 .filter(|date| date.kind == ContactDateKind::Birthday)
                 .max_by_key(|date| {
-                    let has_year = date.year.is_some() as u8;
-                    let label_empty =
-                        normalize_contact_date_label(date.label.clone()).is_none() as u8;
+                    let has_year = date.year.is_some();
+                    let label_empty = normalize_contact_date_label(date.label.clone()).is_none();
                     (has_year, label_empty)
                 });
 
@@ -356,20 +355,25 @@ impl RawCard {
         }
 
         if let Some(birthday) = birthday_date {
-            let mut target = dates.iter_mut().find(|date| {
-                date.kind == ContactDateKind::Birthday
-                    && date.month == birthday.month
-                    && date.day == birthday.day
-                    && date.label.is_none()
-            });
-            if target.is_none() {
-                target = dates.iter_mut().find(|date| {
+            let birthday_year = birthday.year;
+            let target_index = dates
+                .iter()
+                .enumerate()
+                .filter(|(_, date)| {
                     date.kind == ContactDateKind::Birthday
                         && date.month == birthday.month
                         && date.day == birthday.day
-                });
-            }
-            if let Some(existing) = target {
+                })
+                .max_by_key(|(_, date)| {
+                    let year_match = birthday_year.is_some() && date.year == birthday_year;
+                    let has_year = date.year.is_some();
+                    let label_empty = normalize_contact_date_label(date.label.clone()).is_none();
+                    (year_match, label_empty, has_year)
+                })
+                .map(|(index, _)| index);
+
+            if let Some(index) = target_index {
+                let existing = &mut dates[index];
                 if existing.year.is_none() && birthday.year.is_some() {
                     existing.year = birthday.year;
                 }
@@ -900,5 +904,107 @@ mod tests {
         assert_eq!(birthdays.len(), 1);
         assert_eq!(birthdays[0].label.as_deref(), Some("Legal"));
         assert_eq!(birthdays[0].year, Some(1906));
+    }
+
+    #[test]
+    fn vcf_export_roundtrip_preserves_unlabeled_when_labeled_has_year() {
+        let contact = Contact {
+            id: ContactId::from_str("1b8b83e0-1b7c-4f28-9e1a-1a2d5b1e5e2d").unwrap(),
+            display_name: "Grace Hopper".to_string(),
+            email: Some("grace@example.com".to_string()),
+            phone: None,
+            handle: None,
+            timezone: None,
+            next_touchpoint_at: None,
+            cadence_days: None,
+            created_at: 0,
+            updated_at: 0,
+            archived_at: None,
+        };
+        let mut tag_map = HashMap::new();
+        tag_map.insert(contact.id, vec!["friends".to_string()]);
+        let mut email_map = HashMap::new();
+        email_map.insert(contact.id, vec!["grace@example.com".to_string()]);
+        let unlabeled = ContactDate {
+            id: ContactDateId::new(),
+            contact_id: contact.id,
+            kind: ContactDateKind::Birthday,
+            label: None,
+            month: 7,
+            day: 4,
+            year: None,
+            created_at: 0,
+            updated_at: 0,
+            source: None,
+        };
+        let labeled = ContactDate {
+            id: ContactDateId::new(),
+            contact_id: contact.id,
+            kind: ContactDateKind::Birthday,
+            label: Some("Legal".to_string()),
+            month: 7,
+            day: 4,
+            year: Some(1906),
+            created_at: 0,
+            updated_at: 0,
+            source: None,
+        };
+        let mut date_map = HashMap::new();
+        date_map.insert(contact.id, vec![unlabeled.clone(), labeled.clone()]);
+
+        let output = export_vcf(&[contact], &tag_map, &email_map, &date_map).expect("export");
+        assert!(output.contains("BDAY:1906-07-04"));
+        assert!(output.contains("X-KNOTTER-DATE:birthday|--0704"));
+        assert!(output.contains("X-KNOTTER-DATE:birthday|1906-07-04|Legal"));
+
+        let parsed = parse_vcf(&output).expect("parse");
+        let round = &parsed.contacts[0];
+        let birthdays: Vec<_> = round
+            .dates
+            .iter()
+            .filter(|date| date.kind == ContactDateKind::Birthday)
+            .collect();
+        assert_eq!(birthdays.len(), 2);
+        let unlabeled_round = birthdays
+            .iter()
+            .find(|date| date.label.is_none())
+            .expect("unlabeled");
+        assert_eq!(unlabeled_round.year, None);
+        let labeled_round = birthdays
+            .iter()
+            .find(|date| date.label.as_deref() == Some("Legal"))
+            .expect("labeled");
+        assert_eq!(labeled_round.year, Some(1906));
+    }
+
+    #[test]
+    fn parse_vcf_prefers_unlabeled_when_year_mismatch() {
+        let data = concat!(
+            "BEGIN:VCARD\n",
+            "VERSION:3.0\n",
+            "FN:Grace Hopper\n",
+            "BDAY:1906-07-04\n",
+            "X-KNOTTER-DATE:birthday|--0704\n",
+            "X-KNOTTER-DATE:birthday|1907-07-04|Legal\n",
+            "END:VCARD\n",
+        );
+        let parsed = parse_vcf(data).expect("parse");
+        assert_eq!(parsed.contacts.len(), 1);
+        let birthdays: Vec<_> = parsed.contacts[0]
+            .dates
+            .iter()
+            .filter(|date| date.kind == ContactDateKind::Birthday)
+            .collect();
+        assert_eq!(birthdays.len(), 2);
+        let unlabeled = birthdays
+            .iter()
+            .find(|date| date.label.is_none())
+            .expect("unlabeled");
+        assert_eq!(unlabeled.year, Some(1906));
+        let labeled = birthdays
+            .iter()
+            .find(|date| date.label.as_deref() == Some("Legal"))
+            .expect("labeled");
+        assert_eq!(labeled.year, Some(1907));
     }
 }
