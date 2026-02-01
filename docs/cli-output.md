@@ -75,7 +75,7 @@ Output: JSON object matching `ContactDetailDto`:
 `InteractionDto` fields:
 - `id` (string UUID)
 - `occurred_at` (number)
-- `kind` (string, one of `call`, `text`, `hangout`, `email`, or `other:<label>`)
+- `kind` (string, one of `call`, `text`, `hangout`, `email`, `telegram`, or `other:<label>`)
 - `note` (string)
 - `follow_up_at` (number|null)
 
@@ -135,7 +135,8 @@ Output: JSON object containing:
 
 ### `knotter sync`
 
-`knotter sync` runs all configured contact sources and email accounts, then
+`knotter sync` runs all configured contact sources, email accounts, and
+telegram accounts (unless `--no-telegram`), then
 applies loops and runs reminders. It does not support `--json`; use individual
 commands (`import`, `loops apply`, `remind`) if you need machine-readable output.
 Sync is best-effort: it continues after failures, prints warnings to stderr, and
@@ -182,6 +183,18 @@ The same output shape is used for `import macos`, `import carddav`, and `import 
 Output: JSON object matching `EmailImportReport`:
 
 - `accounts`, `mailboxes`
+- `messages_seen`, `messages_imported`
+- `contacts_created`, `contacts_merged`, `contacts_matched`
+- `merge_candidates_created`
+- `touches_recorded`
+- `warnings` (array of strings)
+- `dry_run` (boolean)
+
+### `knotter import telegram --json`
+
+Output: JSON object matching `TelegramImportReport`:
+
+- `accounts`, `users_seen`
 - `messages_seen`, `messages_imported`
 - `contacts_created`, `contacts_merged`, `contacts_matched`
 - `merge_candidates_created`

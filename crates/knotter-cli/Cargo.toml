@@ -30,6 +30,7 @@ desktop-notify = ["notify-rust"]
 email-notify = ["lettre"]
 dav-sync = ["knotter-sync/dav-sync"]
 email-sync = ["knotter-sync/email-sync"]
+telegram-sync = ["knotter-sync/telegram-sync"]
 
 [package.metadata.deb]
 maintainer = "Tomatyss <tomatyss@users.noreply.github.com>"

@@ -279,6 +279,7 @@ fn serialize_kind(kind: &InteractionKind) -> Result<String> {
         InteractionKind::Text => Ok("text".to_string()),
         InteractionKind::Hangout => Ok("hangout".to_string()),
         InteractionKind::Email => Ok("email".to_string()),
+        InteractionKind::Telegram => Ok("telegram".to_string()),
         InteractionKind::Other(label) => {
             let trimmed = label.trim();
             if trimmed.is_empty() {
@@ -295,6 +296,7 @@ fn parse_kind(raw: &str) -> Result<InteractionKind> {
         "text" => Ok(InteractionKind::Text),
         "hangout" => Ok(InteractionKind::Hangout),
         "email" => Ok(InteractionKind::Email),
+        "telegram" => Ok(InteractionKind::Telegram),
         _ => {
             if let Some(rest) = raw.strip_prefix("other:") {
                 if rest.trim().is_empty() {

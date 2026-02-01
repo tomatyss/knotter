@@ -31,6 +31,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "008_contact_dates_custom_label.sql",
         include_str!("../migrations/008_contact_dates_custom_label.sql"),
     ),
+    (
+        "009_telegram_sync.sql",
+        include_str!("../migrations/009_telegram_sync.sql"),
+    ),
 ];
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {

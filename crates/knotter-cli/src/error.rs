@@ -75,6 +75,7 @@ fn store_exit_code(err: &StoreError) -> u8 {
         | StoreErrorKind::InvalidInteractionKind
         | StoreErrorKind::InvalidDataPath
         | StoreErrorKind::DuplicateEmail
+        | StoreErrorKind::DuplicateTelegramUser
         | StoreErrorKind::InvalidMerge
         | StoreErrorKind::Core => EXIT_INVALID_INPUT,
         StoreErrorKind::MissingHomeDir
@@ -102,6 +103,9 @@ fn config_exit_code(err: &ConfigError) -> u8 {
         | ConfigError::InvalidEmailAccountName(_)
         | ConfigError::DuplicateEmailAccountName(_)
         | ConfigError::InvalidEmailAccountField { .. }
+        | ConfigError::InvalidTelegramAccountName(_)
+        | ConfigError::DuplicateTelegramAccountName(_)
+        | ConfigError::InvalidTelegramAccountField { .. }
         | ConfigError::InvalidNotificationsEmailField { .. }
         | ConfigError::Read { .. }
         | ConfigError::Parse { .. } => EXIT_INVALID_INPUT,

@@ -13,6 +13,7 @@ const APP_DIR: &str = "knotter";
 const CONFIG_FILENAME: &str = "config.toml";
 
 pub const DEFAULT_SOON_DAYS: i64 = 7;
+pub const DEFAULT_TELEGRAM_SNIPPET_LEN: usize = 160;
 
 #[derive(Debug, Clone)]
 pub struct AppConfig {
@@ -82,6 +83,7 @@ pub enum LoopAnchor {
 pub struct ContactsConfig {
     pub sources: Vec<ContactSourceConfig>,
     pub email_accounts: Vec<EmailAccountConfig>,
+    pub telegram_accounts: Vec<TelegramAccountConfig>,
 }
 
 impl ContactsConfig {
@@ -93,6 +95,13 @@ impl ContactsConfig {
     pub fn email_account(&self, name: &str) -> Option<&EmailAccountConfig> {
         let needle = normalize_source_name(name).ok()?;
         self.email_accounts
+            .iter()
+            .find(|account| account.name == needle)
+    }
+
+    pub fn telegram_account(&self, name: &str) -> Option<&TelegramAccountConfig> {
+        let needle = normalize_source_name(name).ok()?;
+        self.telegram_accounts
             .iter()
             .find(|account| account.name == needle)
     }
@@ -151,6 +160,27 @@ pub struct EmailAccountConfig {
     pub tag: Option<String>,
     pub merge_policy: EmailMergePolicy,
     pub tls: EmailAccountTls,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum TelegramMergePolicy {
+    #[default]
+    NameOrUsername,
+    UsernameOnly,
+}
+
+#[derive(Debug, Clone)]
+pub struct TelegramAccountConfig {
+    pub name: String,
+    pub api_id: i32,
+    pub api_hash_env: String,
+    pub phone: String,
+    pub session_path: Option<PathBuf>,
+    pub tag: Option<String>,
+    pub merge_policy: TelegramMergePolicy,
+    pub allowlist_user_ids: Vec<i64>,
+    pub snippet_len: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -221,6 +251,12 @@ pub enum ConfigError {
     DuplicateEmailAccountName(String),
     #[error("invalid email account {account_name} field: {field}")]
     InvalidEmailAccountField { account_name: String, field: String },
+    #[error("invalid telegram account name: {0}")]
+    InvalidTelegramAccountName(String),
+    #[error("duplicate telegram account name: {0}")]
+    DuplicateTelegramAccountName(String),
+    #[error("invalid telegram account {account_name} field: {field}")]
+    InvalidTelegramAccountField { account_name: String, field: String },
     #[error("invalid notifications email field: {field}")]
     InvalidNotificationsEmailField { field: String },
     #[error("failed to read config file {path}: {source}")]
@@ -303,6 +339,7 @@ struct LoopRuleFile {
 struct ContactsFile {
     sources: Option<Vec<ContactSourceFile>>,
     email_accounts: Option<Vec<EmailAccountFile>>,
+    telegram_accounts: Option<Vec<TelegramAccountFile>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -335,6 +372,20 @@ struct EmailAccountFile {
     tag: Option<String>,
     merge_policy: Option<EmailMergePolicy>,
     tls: Option<EmailAccountTls>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TelegramAccountFile {
+    name: String,
+    api_id: i32,
+    api_hash_env: String,
+    phone: String,
+    session_path: Option<String>,
+    tag: Option<String>,
+    merge_policy: Option<TelegramMergePolicy>,
+    allowlist_user_ids: Option<Vec<i64>>,
+    snippet_len: Option<usize>,
 }
 
 pub fn load(config_path: Option<PathBuf>) -> Result<AppConfig> {
@@ -577,6 +628,55 @@ fn merge_config(parsed: ConfigFile) -> Result<AppConfig> {
                 });
             }
         }
+        if let Some(accounts) = contacts.telegram_accounts {
+            let mut seen: HashSet<String> = HashSet::new();
+            for account in accounts {
+                let name = normalize_telegram_account_name(&account.name)?;
+                if !seen.insert(name.clone()) {
+                    return Err(ConfigError::DuplicateTelegramAccountName(name));
+                }
+                if account.api_id <= 0 {
+                    return Err(ConfigError::InvalidTelegramAccountField {
+                        account_name: name.clone(),
+                        field: "api_id".to_string(),
+                    });
+                }
+                let api_hash_env =
+                    normalize_telegram_account_field(account.api_hash_env, &name, "api_hash_env")?;
+                let phone = normalize_telegram_account_field(account.phone, &name, "phone")?;
+                let session_path =
+                    normalize_optional_string(account.session_path).map(PathBuf::from);
+                let tag = normalize_optional_tag_for_telegram_account(account.tag, &name)?;
+                let merge_policy = account.merge_policy.unwrap_or_default();
+                let allowlist_user_ids =
+                    normalize_allowlist_user_ids(account.allowlist_user_ids, &name)?;
+                let snippet_len = match account.snippet_len {
+                    Some(0) => {
+                        return Err(ConfigError::InvalidTelegramAccountField {
+                            account_name: name.clone(),
+                            field: "snippet_len".to_string(),
+                        })
+                    }
+                    Some(value) => value,
+                    None => DEFAULT_TELEGRAM_SNIPPET_LEN,
+                };
+
+                config
+                    .contacts
+                    .telegram_accounts
+                    .push(TelegramAccountConfig {
+                        name,
+                        api_id: account.api_id,
+                        api_hash_env,
+                        phone,
+                        session_path,
+                        tag,
+                        merge_policy,
+                        allowlist_user_ids,
+                        snippet_len,
+                    });
+            }
+        }
     }
 
     Ok(config)
@@ -671,6 +771,30 @@ fn normalize_email_account_field(value: String, account: &str, field: &str) -> R
     let trimmed = value.trim();
     if trimmed.is_empty() {
         return Err(ConfigError::InvalidEmailAccountField {
+            account_name: account.to_string(),
+            field: field.to_string(),
+        });
+    }
+    Ok(trimmed.to_string())
+}
+
+fn normalize_telegram_account_name(name: &str) -> Result<String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err(ConfigError::InvalidTelegramAccountName(name.to_string()));
+    }
+    let lowered = trimmed.to_ascii_lowercase();
+    let mut components = std::path::Path::new(&lowered).components();
+    match components.next() {
+        Some(std::path::Component::Normal(_)) if components.next().is_none() => Ok(lowered),
+        _ => Err(ConfigError::InvalidTelegramAccountName(name.to_string())),
+    }
+}
+
+fn normalize_telegram_account_field(value: String, account: &str, field: &str) -> Result<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(ConfigError::InvalidTelegramAccountField {
             account_name: account.to_string(),
             field: field.to_string(),
         });
@@ -807,6 +931,51 @@ fn normalize_optional_tag_for_email_account(
     }
 }
 
+fn normalize_optional_tag_for_telegram_account(
+    value: Option<String>,
+    account_name: &str,
+) -> Result<Option<String>> {
+    match value {
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                return Err(ConfigError::InvalidTelegramAccountField {
+                    account_name: account_name.to_string(),
+                    field: "tag".to_string(),
+                });
+            }
+            let tag = knotter_core::domain::TagName::new(trimmed).map_err(|_| {
+                ConfigError::InvalidTelegramAccountField {
+                    account_name: account_name.to_string(),
+                    field: "tag".to_string(),
+                }
+            })?;
+            Ok(Some(tag.as_str().to_string()))
+        }
+        None => Ok(None),
+    }
+}
+
+fn normalize_allowlist_user_ids(values: Option<Vec<i64>>, account_name: &str) -> Result<Vec<i64>> {
+    let Some(values) = values else {
+        return Ok(Vec::new());
+    };
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for value in values {
+        if value <= 0 {
+            return Err(ConfigError::InvalidTelegramAccountField {
+                account_name: account_name.to_string(),
+                field: "allowlist_user_ids".to_string(),
+            });
+        }
+        if seen.insert(value) {
+            out.push(value);
+        }
+    }
+    Ok(out)
+}
+
 fn normalize_required_string(value: String, source: &str, field: &str) -> Result<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -844,7 +1013,8 @@ mod tests {
         load_at_path, merge_config, CardDavSourceConfig, ConfigFile, ContactSourceFile,
         ContactSourceKind, ContactsFile, EmailAccountFile, EmailAccountTls, EmailMergePolicy,
         EmailTls, LoopAnchor, LoopConfigFile, LoopRuleFile, LoopStrategy, MacosSourceConfig,
-        NotificationBackend, NotificationsEmailFile, NotificationsFile,
+        NotificationBackend, NotificationsEmailFile, NotificationsFile, TelegramAccountFile,
+        TelegramMergePolicy, DEFAULT_TELEGRAM_SNIPPET_LEN,
     };
     use std::fs;
     use std::path::Path;
@@ -1046,6 +1216,7 @@ mod tests {
                     },
                 ]),
                 email_accounts: None,
+                telegram_accounts: None,
             }),
         };
 
@@ -1091,6 +1262,7 @@ mod tests {
                     merge_policy: Some(EmailMergePolicy::NameOrEmail),
                     tls: Some(EmailAccountTls::Tls),
                 }]),
+                telegram_accounts: None,
             }),
         };
 
@@ -1105,6 +1277,83 @@ mod tests {
         assert_eq!(account.tag.as_deref(), Some("friends"));
         assert_eq!(account.merge_policy, EmailMergePolicy::NameOrEmail);
         assert_eq!(account.tls, EmailAccountTls::Tls);
+    }
+
+    #[test]
+    fn merge_config_parses_telegram_accounts() {
+        let parsed = ConfigFile {
+            due_soon_days: None,
+            default_cadence_days: None,
+            notifications: None,
+            interactions: None,
+            loops: None,
+            contacts: Some(ContactsFile {
+                sources: None,
+                email_accounts: None,
+                telegram_accounts: Some(vec![TelegramAccountFile {
+                    name: "Primary".to_string(),
+                    api_id: 123,
+                    api_hash_env: "KNOTTER_TELEGRAM_HASH".to_string(),
+                    phone: "+15551234567".to_string(),
+                    session_path: Some("/tmp/knotter-telegram.session".to_string()),
+                    tag: Some("friends".to_string()),
+                    merge_policy: Some(TelegramMergePolicy::NameOrUsername),
+                    allowlist_user_ids: Some(vec![42, 7, 42]),
+                    snippet_len: None,
+                }]),
+            }),
+        };
+
+        let merged = merge_config(parsed).expect("merge");
+        assert_eq!(merged.contacts.telegram_accounts.len(), 1);
+        let account = &merged.contacts.telegram_accounts[0];
+        assert_eq!(account.name, "primary");
+        assert_eq!(account.api_id, 123);
+        assert_eq!(account.api_hash_env, "KNOTTER_TELEGRAM_HASH");
+        assert_eq!(account.phone, "+15551234567");
+        assert_eq!(
+            account
+                .session_path
+                .as_ref()
+                .map(|path| path.display().to_string()),
+            Some("/tmp/knotter-telegram.session".to_string())
+        );
+        assert_eq!(account.tag.as_deref(), Some("friends"));
+        assert_eq!(account.merge_policy, TelegramMergePolicy::NameOrUsername);
+        assert_eq!(account.allowlist_user_ids, vec![42, 7]);
+        assert_eq!(account.snippet_len, DEFAULT_TELEGRAM_SNIPPET_LEN);
+    }
+
+    #[test]
+    fn merge_config_rejects_invalid_telegram_account_name() {
+        let parsed = ConfigFile {
+            due_soon_days: None,
+            default_cadence_days: None,
+            notifications: None,
+            interactions: None,
+            loops: None,
+            contacts: Some(ContactsFile {
+                sources: None,
+                email_accounts: None,
+                telegram_accounts: Some(vec![TelegramAccountFile {
+                    name: "../Primary".to_string(),
+                    api_id: 123,
+                    api_hash_env: "KNOTTER_TELEGRAM_HASH".to_string(),
+                    phone: "+15551234567".to_string(),
+                    session_path: None,
+                    tag: None,
+                    merge_policy: None,
+                    allowlist_user_ids: None,
+                    snippet_len: None,
+                }]),
+            }),
+        };
+
+        let err = merge_config(parsed).expect_err("expected invalid name");
+        assert!(matches!(
+            err,
+            crate::ConfigError::InvalidTelegramAccountName(_)
+        ));
     }
 
     #[test]
@@ -1129,6 +1378,7 @@ mod tests {
                     },
                 ]),
                 email_accounts: None,
+                telegram_accounts: None,
             }),
         };
 
@@ -1153,6 +1403,7 @@ mod tests {
                     tag: None,
                 }]),
                 email_accounts: None,
+                telegram_accounts: None,
             }),
         };
 
@@ -1177,6 +1428,7 @@ mod tests {
                     tag: Some("friends".to_string()),
                 }]),
                 email_accounts: None,
+                telegram_accounts: None,
             }),
         };
 
@@ -1314,6 +1566,7 @@ mod tests {
                     tag: None,
                 }]),
                 email_accounts: None,
+                telegram_accounts: None,
             }),
         };
 
@@ -1336,6 +1589,7 @@ mod tests {
                     tag: Some("   ".to_string()),
                 }]),
                 email_accounts: None,
+                telegram_accounts: None,
             }),
         };
 

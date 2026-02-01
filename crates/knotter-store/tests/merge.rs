@@ -1,7 +1,7 @@
 use knotter_core::domain::ContactDateKind;
 use knotter_store::repo::{
     ContactDateNew, ContactMergeOptions, ContactNew, InteractionNew, MergeCandidateCreate,
-    MergeCandidateStatus,
+    MergeCandidateStatus, TelegramAccountNew, TelegramMessageRecord,
 };
 use knotter_store::Store;
 
@@ -205,6 +205,110 @@ fn merge_contacts_unifies_emails_tags_and_interactions() {
 
     let missing = store.contacts().get(secondary.id).expect("get secondary");
     assert!(missing.is_none());
+}
+
+#[test]
+fn merge_contacts_moves_telegram_accounts_and_messages() {
+    let store = Store::open_in_memory().expect("open store");
+    store.migrate().expect("migrate");
+    let now = 1_700_000_000;
+
+    let primary = store
+        .contacts()
+        .create(
+            now,
+            ContactNew {
+                display_name: "Ada".to_string(),
+                email: None,
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create primary");
+
+    let secondary = store
+        .contacts()
+        .create(
+            now,
+            ContactNew {
+                display_name: "Ada Lovelace".to_string(),
+                email: None,
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create secondary");
+
+    store
+        .telegram_accounts()
+        .upsert(
+            now,
+            TelegramAccountNew {
+                contact_id: secondary.id,
+                telegram_user_id: 42,
+                username: Some("ada".to_string()),
+                phone: None,
+                first_name: Some("Ada".to_string()),
+                last_name: Some("Lovelace".to_string()),
+                source: Some("telegram:test".to_string()),
+            },
+        )
+        .expect("upsert telegram account");
+
+    store
+        .telegram_sync()
+        .record_message(&TelegramMessageRecord {
+            account: "primary".to_string(),
+            peer_id: 42,
+            message_id: 100,
+            contact_id: secondary.id,
+            occurred_at: now - 5,
+            direction: "inbound".to_string(),
+            snippet: Some("hello".to_string()),
+            created_at: now,
+        })
+        .expect("record telegram message");
+
+    store
+        .contacts()
+        .merge_contacts(
+            now + 10,
+            primary.id,
+            secondary.id,
+            ContactMergeOptions::default(),
+        )
+        .expect("merge contacts");
+
+    let accounts = store
+        .telegram_accounts()
+        .list_for_contact(primary.id)
+        .expect("list telegram accounts");
+    assert_eq!(accounts.len(), 1);
+    assert_eq!(accounts[0].telegram_user_id, 42);
+
+    let mapped = store
+        .telegram_accounts()
+        .find_contact_id_by_user_id(42)
+        .expect("lookup telegram user");
+    assert_eq!(mapped, Some(primary.id));
+
+    let contact_id: String = store
+        .connection()
+        .query_row(
+            "SELECT contact_id FROM telegram_messages WHERE account = ?1 AND peer_id = ?2;",
+            rusqlite::params!["primary", 42],
+            |row| row.get(0),
+        )
+        .expect("query telegram message");
+    assert_eq!(contact_id, primary.id.to_string());
 }
 
 #[test]

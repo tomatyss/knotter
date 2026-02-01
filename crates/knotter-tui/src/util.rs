@@ -12,13 +12,14 @@ pub fn parse_interaction_kind(raw: &str) -> Result<InteractionKind> {
         "text" => Ok(InteractionKind::Text),
         "hangout" => Ok(InteractionKind::Hangout),
         "email" => Ok(InteractionKind::Email),
+        "telegram" => Ok(InteractionKind::Telegram),
         _ => {
             if lower.starts_with("other:") {
                 let rest = &trimmed[6..];
                 return Ok(InteractionKind::other(rest)?);
             }
             Err(anyhow!(
-                "invalid interaction kind: expected call|text|hangout|email|other:<label>"
+                "invalid interaction kind: expected call|text|hangout|email|telegram|other:<label>"
             ))
         }
     }
@@ -30,6 +31,7 @@ pub fn format_interaction_kind(kind: &InteractionKind) -> String {
         InteractionKind::Text => "text".to_string(),
         InteractionKind::Hangout => "hangout".to_string(),
         InteractionKind::Email => "email".to_string(),
+        InteractionKind::Telegram => "telegram".to_string(),
         InteractionKind::Other(label) => format!("other:{}", label),
     }
 }

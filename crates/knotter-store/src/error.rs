@@ -28,6 +28,8 @@ pub enum StoreError {
     InvalidFilter(String),
     #[error("duplicate email: {0}")]
     DuplicateEmail(String),
+    #[error("duplicate telegram user id: {0}")]
+    DuplicateTelegramUser(i64),
     #[error("invalid merge: {0}")]
     InvalidMerge(String),
 }
@@ -48,6 +50,7 @@ pub enum StoreErrorKind {
     InvalidInteractionKind,
     InvalidFilter,
     DuplicateEmail,
+    DuplicateTelegramUser,
     InvalidMerge,
 }
 
@@ -66,6 +69,7 @@ impl StoreError {
             StoreError::InvalidInteractionKind(_) => StoreErrorKind::InvalidInteractionKind,
             StoreError::InvalidFilter(_) => StoreErrorKind::InvalidFilter,
             StoreError::DuplicateEmail(_) => StoreErrorKind::DuplicateEmail,
+            StoreError::DuplicateTelegramUser(_) => StoreErrorKind::DuplicateTelegramUser,
             StoreError::InvalidMerge(_) => StoreErrorKind::InvalidMerge,
         }
     }

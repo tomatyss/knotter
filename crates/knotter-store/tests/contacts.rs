@@ -109,6 +109,51 @@ fn list_by_email_is_case_insensitive_and_prefers_active() {
 }
 
 #[test]
+fn list_by_handle_is_case_insensitive_and_prefers_active() {
+    let store = Store::open_in_memory().expect("open in memory");
+    store.migrate().expect("migrate");
+
+    let now = 1_700_000_000;
+    let active = store
+        .contacts()
+        .create(
+            now,
+            ContactNew {
+                display_name: "Ada Lovelace".to_string(),
+                email: None,
+                phone: None,
+                handle: Some("@Ada".to_string()),
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create contact");
+    let archived = store
+        .contacts()
+        .create(
+            now + 10,
+            ContactNew {
+                display_name: "Ada (Archived)".to_string(),
+                email: None,
+                phone: None,
+                handle: Some("@ada".to_string()),
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: Some(now + 20),
+            },
+        )
+        .expect("create archived contact");
+
+    let found = store.contacts().list_by_handle("@ada").expect("find");
+    assert_eq!(found.len(), 2);
+    assert_eq!(found[0].id, active.id);
+    assert_ne!(found[0].id, archived.id);
+}
+
+#[test]
 fn tags_attach_and_list() {
     let store = Store::open_in_memory().expect("open in memory");
     store.migrate().expect("migrate");

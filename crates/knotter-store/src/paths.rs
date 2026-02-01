@@ -30,6 +30,16 @@ pub fn ensure_data_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
+pub fn ensure_data_subdir(name: &str) -> Result<PathBuf> {
+    let base = ensure_data_dir()?;
+    let dir = base.join(name);
+    if !dir.exists() {
+        fs::create_dir_all(&dir)?;
+    }
+    restrict_dir_permissions(&dir)?;
+    Ok(dir)
+}
+
 pub fn db_path() -> Result<PathBuf> {
     Ok(ensure_data_dir()?.join(DB_FILENAME))
 }

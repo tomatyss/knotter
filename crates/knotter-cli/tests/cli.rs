@@ -2028,5 +2028,5 @@ fn cli_sync_errors_without_sources_or_accounts() {
     assert!(!output.status.success(), "command unexpectedly succeeded");
     assert_eq!(output.status.code(), Some(3));
     let stderr = String::from_utf8(output.stderr).expect("utf8");
-    assert!(stderr.contains("no contact sources or email accounts configured"));
+    assert!(stderr.contains("no contact sources, email accounts, or telegram accounts configured"));
 }
