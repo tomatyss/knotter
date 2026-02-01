@@ -126,7 +126,9 @@ tag = "gmail"
 
 ## Telegram sync
 
-Requires the `telegram-sync` feature. On first sync, set `KNOTTER_TELEGRAM_CODE`
+Included in default builds. For a no-sync build from source, use
+`--no-default-features`. To enable Telegram in a minimal build, add
+`--features telegram-sync`. On first sync, set `KNOTTER_TELEGRAM_CODE`
 (and `KNOTTER_TELEGRAM_PASSWORD` if you use 2FA) for non-interactive use.
 
 ```toml

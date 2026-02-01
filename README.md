@@ -152,7 +152,7 @@ Common keys (full list in `docs/KEYBINDINGS.md`):
 - Export touchpoints (ICS): `knotter export ics --out <file>`
 - Export full JSON snapshot: `knotter export json --out <file>` (add `--exclude-archived` to omit archived)
 
-CardDAV and email import are enabled in default builds (v0.2.1+). Telegram sync is opt-in. To slim down a build, use `--no-default-features` and re-enable sync with `--features dav-sync,email-sync,telegram-sync`. See `docs/import-export.md` for mapping details.
+Default builds include all sync features (`dav-sync`, `email-sync`, `telegram-sync`). For a no-sync build from source, use `--no-default-features` and re-enable only what you need with `--features dav-sync,email-sync,telegram-sync`. See `docs/import-export.md` for mapping details.
 
 ## Reminders
 

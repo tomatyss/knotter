@@ -135,7 +135,9 @@ Optional flags:
 ```
 
 Notes:
-- Telegram sync is opt-in. Enable with `--features telegram-sync`.
+- Telegram sync is included in default builds. For a no-sync build from source, use
+  `--no-default-features`. To enable Telegram in a minimal build, add
+  `--features telegram-sync` (plus any other sync features you want).
 - Only 1:1 chats are imported; group chats are ignored.
 - Snippets are stored (collapsed to a single line); full message bodies are not stored.
 - On first sync, knotter will request a login code. Set `KNOTTER_TELEGRAM_CODE` and (if you

@@ -1009,8 +1009,8 @@ Minimum expectations:
 
 ## 15. Feature flags (recommended)
 
-Feature flags keep optional integrations isolated. Default builds (v0.2.1+) enable
-CardDAV + email sync, while Telegram sync and notification backends remain opt-in:
+Feature flags keep optional integrations isolated. Default builds enable
+CardDAV, email, and Telegram sync, while notification backends remain opt-in:
 
 * `desktop-notify` feature:
 
@@ -1028,7 +1028,7 @@ CardDAV + email sync, while Telegram sync and notification backends remain opt-i
 
   * enables Telegram 1:1 import/sync
 
-Use `--no-default-features` for a minimal build and re-enable features explicitly.
+Use `--no-default-features` for a no-sync build and re-enable features explicitly.
 
 ---
 
