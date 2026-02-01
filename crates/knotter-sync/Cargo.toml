@@ -14,8 +14,16 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 url = { version = "2", optional = true }
 imap = { version = "3.0.0-alpha.15", optional = true }
 mailparse = { version = "0.14", optional = true }
+grammers-client = { version = "0.7", optional = true }
+grammers-session = { version = "0.7", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true }
 
 [features]
 default = []
 dav-sync = ["dep:quick-xml", "dep:reqwest", "dep:url"]
 email-sync = ["dep:imap", "dep:mailparse"]
+telegram-sync = [
+  "dep:grammers-client",
+  "dep:grammers-session",
+  "dep:tokio",
+]

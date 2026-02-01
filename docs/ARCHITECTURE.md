@@ -57,6 +57,7 @@ knotter is split into layers to keep UI and persistence separate from business l
   - Import/export adapters:
     - vCard (.vcf) for contacts
     - iCalendar (.ics) for touchpoints
+    - Telegram 1:1 sync (snippets only)
   - Future: CardDAV/CalDAV sync (optional).
 - **knotter-cli**
   - CLI frontend (commands, argument parsing).
@@ -194,6 +195,7 @@ Core fields:
 - `Text`
 - `Hangout`
 - `Email`
+- `Telegram`
 - `Other(String)` (must be normalized/trimmed)
 
 Invariants:
@@ -507,6 +509,24 @@ contact emails + interaction history:
 * Duplicate-email conflicts create merge candidates for manual resolution.
 * Each new message creates an `InteractionKind::Email` entry.
 * Sync is incremental using `email_sync_state` (account/mailbox, UIDVALIDITY, last UID).
+
+### 7.4 Telegram 1:1 sync (snippets-only)
+
+Telegram sync ingests 1:1 user chats (no groups) and stores **snippets only**:
+
+* Each Telegram user maps to a contact via `contact_telegram_accounts` (telegram user id, username, phone, names).
+* If a telegram user id is already linked, update metadata + record interactions.
+* If no link exists:
+  * match by username when available (including contact handles)
+  * otherwise (and only when enabled) match by display name
+  * ambiguous matches create merge candidates; a staged archived contact holds the telegram id
+  * `--messages-only` skips staging and only attaches to unambiguous matches
+* Each imported message inserts:
+  * `telegram_messages` row for dedupe
+  * `InteractionKind::Telegram` with a snippet note
+* Sync state is tracked per account + peer via `telegram_sync_state` (last_message_id).
+* First-time authentication requires a login code; non-interactive runs can provide
+  `KNOTTER_TELEGRAM_CODE` and (for 2FA) `KNOTTER_TELEGRAM_PASSWORD`.
 
 ### 7.2 iCalendar (.ics) for touchpoints
 
@@ -822,6 +842,17 @@ identities = ["user@gmail.com"]
 merge_policy = "name-or-email"
 tls = "tls"
 tag = "gmail"
+
+[[contacts.telegram_accounts]]
+name = "primary"
+api_id = 123456
+api_hash_env = "KNOTTER_TELEGRAM_API_HASH"
+phone = "+15551234567"
+session_path = "/home/user/.local/share/knotter/telegram/primary.session"
+merge_policy = "name-or-username"
+allowlist_user_ids = [123456789]
+snippet_len = 160
+tag = "telegram"
 ```
 
 Defaults and validation notes:
@@ -834,6 +865,8 @@ Defaults and validation notes:
 * CardDAV sources require `url` and `username`; `password_env` and `tag` are optional.
 * Email accounts default to `port = 993`, `mailboxes = ["INBOX"]`, and
   `identities = [username]` when `username` is an email address.
+* Telegram accounts require `api_id`, `api_hash_env`, and `phone`. `session_path` is optional.
+* Telegram `merge_policy` defaults to `name-or-username`; `snippet_len` defaults to `160`.
 * Source/account names are normalized to lowercase and must be unique.
 
 Example loop policy:
@@ -903,6 +936,22 @@ tls = "tls"                    # tls | start-tls | none
 tag = "gmail"
 ```
 
+Telegram account sync config (optional):
+
+```
+[contacts]
+[[contacts.telegram_accounts]]
+name = "primary"
+api_id = 123456
+api_hash_env = "KNOTTER_TELEGRAM_API_HASH"
+phone = "+15551234567"
+session_path = "/home/user/.local/share/knotter/telegram/primary.session"
+merge_policy = "name-or-username" # or "username-only"
+allowlist_user_ids = [123456789]
+snippet_len = 160
+tag = "telegram"
+```
+
 On Unix, config files must be user-readable only (e.g., `chmod 600`).
 
 Config parsing lives outside core (store/cli/tui).
@@ -946,6 +995,7 @@ Minimum expectations:
 * vCard parse + map to core structs
 * export vCard is parseable and contains expected fields
 * ICS export includes stable UIDs and correct timestamps
+* Telegram sync mapping (username normalization + snippet formatting)
 
 ### 14.4 CLI/TUI smoke tests (optional MVP)
 
@@ -957,8 +1007,8 @@ Minimum expectations:
 
 ## 15. Feature flags (recommended)
 
-Feature flags keep optional integrations isolated. Default builds (v0.2.1+) enable sync
-features, while notification backends remain opt-in:
+Feature flags keep optional integrations isolated. Default builds (v0.2.1+) enable
+CardDAV + email sync, while Telegram sync and notification backends remain opt-in:
 
 * `desktop-notify` feature:
 
@@ -972,6 +1022,9 @@ features, while notification backends remain opt-in:
 * `email-sync` feature:
 
   * enables IMAP email import/sync
+* `telegram-sync` feature:
+
+  * enables Telegram 1:1 import/sync
 
 Use `--no-default-features` for a minimal build and re-enable features explicitly.
 
@@ -1014,7 +1067,7 @@ To avoid schema churn:
 
 * Store kinds as lowercase strings:
 
-  * `call`, `text`, `hangout`, `email`
+  * `call`, `text`, `hangout`, `email`, `telegram`
 * For `Other(s)`:
 
   * store `other:<normalized>` where `<normalized>` is trimmed and lowercased

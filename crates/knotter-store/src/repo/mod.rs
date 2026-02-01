@@ -5,6 +5,8 @@ pub mod emails;
 pub mod interactions;
 pub mod merge_candidates;
 pub mod tags;
+pub mod telegram_accounts;
+pub mod telegram_sync;
 
 pub use contact_dates::{ContactDateNew, ContactDateOccurrence, ContactDatesRepo};
 pub use contacts::{
@@ -19,3 +21,5 @@ pub use merge_candidates::{
     MergeCandidatesRepo,
 };
 pub use tags::TagsRepo;
+pub use telegram_accounts::{TelegramAccount, TelegramAccountNew, TelegramAccountsRepo};
+pub use telegram_sync::{TelegramMessageRecord, TelegramSyncRepo, TelegramSyncState};

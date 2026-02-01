@@ -146,12 +146,13 @@ Common keys (full list in `docs/KEYBINDINGS.md`):
 - Import macOS Contacts: `knotter import macos`
 - Import CardDAV (Gmail/iCloud/etc.): `knotter import carddav --url <addressbook-url> --username <user> --password-env <ENV>`
 - Import email accounts (IMAP): `knotter import email --account <name> [--limit N] [--retry-skipped] [--force-uidvalidity-resync]`
-- Sync all configured sources + email accounts, then apply loops and remind: `knotter sync`
+- Import Telegram (1:1 snippets): `knotter import telegram --account <name> [--limit N] [--contacts-only|--messages-only]`
+- Sync all configured sources + email + telegram, then apply loops and remind: `knotter sync` (use `--no-telegram` to skip Telegram)
 - Export vCard: `knotter export vcf --out <file>`
 - Export touchpoints (ICS): `knotter export ics --out <file>`
 - Export full JSON snapshot: `knotter export json --out <file>` (add `--exclude-archived` to omit archived)
 
-CardDAV and email import are enabled in default builds (v0.2.1+). To slim down a build, use `--no-default-features` and re-enable sync with `--features dav-sync,email-sync`. See `docs/import-export.md` for mapping details.
+CardDAV and email import are enabled in default builds (v0.2.1+). Telegram sync is opt-in. To slim down a build, use `--no-default-features` and re-enable sync with `--features dav-sync,email-sync,telegram-sync`. See `docs/import-export.md` for mapping details.
 
 ## Reminders
 
@@ -240,6 +241,17 @@ identities = ["user@gmail.com"]
 merge_policy = "name-or-email" # name-or-email | email-only
 tls = "tls" # tls | start-tls | none
 tag = "gmail"
+
+[[contacts.telegram_accounts]]
+name = "primary"
+api_id = 123456
+api_hash_env = "KNOTTER_TELEGRAM_API_HASH"
+phone = "+15551234567"
+session_path = "/home/user/.local/share/knotter/telegram/primary.session"
+merge_policy = "name-or-username" # name-or-username | username-only
+allowlist_user_ids = [123456789]
+snippet_len = 160
+tag = "telegram"
 ```
 
 Notes:
@@ -253,6 +265,14 @@ Notes:
   you pass `--password-env` or `--password-stdin` at runtime.
 - Email accounts default to `port = 993`, `mailboxes = ["INBOX"]`, and
   `identities = [username]` when the username is an email address.
+- Telegram accounts require `api_id`, `api_hash_env`, and `phone`. `session_path`
+  is optional; by default sessions are stored under
+  `$XDG_DATA_HOME/knotter/telegram/<name>.session` (or `~/.local/share/knotter/telegram/<name>.session`).
+  `snippet_len` defaults to 160; `allowlist_user_ids` limits sync to specific Telegram user ids.
+- Telegram sync prompts for a login code on first use. Set `KNOTTER_TELEGRAM_CODE` and
+  (if you have 2FA) `KNOTTER_TELEGRAM_PASSWORD` to run non-interactively.
+- Telegram account names must be a single path segment (no slashes), since they are used
+  to construct default session filenames.
 
 ## Data location
 

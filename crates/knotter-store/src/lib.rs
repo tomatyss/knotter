@@ -54,6 +54,14 @@ impl Store {
         repo::EmailSyncRepo::new(&self.conn)
     }
 
+    pub fn telegram_accounts(&self) -> repo::TelegramAccountsRepo<'_> {
+        repo::TelegramAccountsRepo::new(&self.conn)
+    }
+
+    pub fn telegram_sync(&self) -> repo::TelegramSyncRepo<'_> {
+        repo::TelegramSyncRepo::new(&self.conn)
+    }
+
     pub fn tags(&self) -> repo::TagsRepo<'_> {
         repo::TagsRepo::new(&self.conn)
     }

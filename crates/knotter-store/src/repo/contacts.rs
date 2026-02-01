@@ -202,6 +202,25 @@ impl<'a> ContactsRepo<'a> {
         Ok(contacts)
     }
 
+    pub fn list_by_handle(&self, handle: &str) -> Result<Vec<Contact>> {
+        let trimmed = handle.trim();
+        if trimmed.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut stmt = self.conn.prepare(
+            "SELECT id, display_name, email, phone, handle, timezone, next_touchpoint_at, cadence_days, created_at, updated_at, archived_at
+             FROM contacts
+             WHERE handle = ?1 COLLATE NOCASE
+             ORDER BY (archived_at IS NOT NULL) ASC, updated_at DESC;",
+        )?;
+        let mut rows = stmt.query([trimmed])?;
+        let mut contacts = Vec::new();
+        while let Some(row) = rows.next()? {
+            contacts.push(contact_from_row(row)?);
+        }
+        Ok(contacts)
+    }
+
     pub fn update(&self, now_utc: i64, id: ContactId, update: ContactUpdate) -> Result<Contact> {
         if self.conn.is_autocommit() {
             let tx = self.conn.unchecked_transaction()?;
@@ -614,6 +633,24 @@ fn merge_contacts_inner(
 
     conn.execute(
         "UPDATE email_messages SET contact_id = ?1 WHERE contact_id = ?2;",
+        params![primary_id.to_string(), secondary_id.to_string()],
+    )?;
+
+    conn.execute(
+        "DELETE FROM contact_telegram_accounts
+         WHERE contact_id = ?1
+           AND telegram_user_id IN (
+             SELECT telegram_user_id FROM contact_telegram_accounts WHERE contact_id = ?2
+           );",
+        params![secondary_id.to_string(), primary_id.to_string()],
+    )?;
+    conn.execute(
+        "UPDATE contact_telegram_accounts SET contact_id = ?1 WHERE contact_id = ?2;",
+        params![primary_id.to_string(), secondary_id.to_string()],
+    )?;
+
+    conn.execute(
+        "UPDATE telegram_messages SET contact_id = ?1 WHERE contact_id = ?2;",
         params![primary_id.to_string(), secondary_id.to_string()],
     )?;
 

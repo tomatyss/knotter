@@ -114,6 +114,38 @@ Notes:
 - `--retry-skipped` stops the import run when a header is skipped so you can retry after fixing config or un-archiving contacts.
 - If UIDVALIDITY changes and the mailbox contains messages without Message-ID, import will skip the resync (and not update state) to avoid duplicate touches. Use `--force-uidvalidity-resync` to override.
 
+## Telegram sync (1:1, snippets only)
+
+Sync Telegram 1:1 chats and store short snippets:
+
+```
+knotter import telegram --account primary
+```
+
+Optional flags:
+
+```
+--dry-run
+--limit <N>        # max messages per user (after last synced)
+--contacts-only
+--messages-only
+--retry-skipped
+--tag <tag>
+```
+
+Notes:
+- Telegram sync is opt-in. Enable with `--features telegram-sync`.
+- Only 1:1 chats are imported; group chats are ignored.
+- Snippets are stored (collapsed to a single line); full message bodies are not stored.
+- On first sync, knotter will request a login code. Set `KNOTTER_TELEGRAM_CODE` and (if you
+  use 2FA) `KNOTTER_TELEGRAM_PASSWORD` to run non-interactively.
+- If a Telegram user id is already linked, knotter updates metadata and records touches.
+- If no link exists, knotter matches by username (including matching contact handles), then display name;
+  ambiguous matches create merge candidates unless `--messages-only` is used.
+- `allowlist_user_ids` in config limits sync to specific Telegram user ids.
+- `--messages-only` never creates or stages contacts; it only attaches messages to unambiguous matches,
+  otherwise it skips the user with a warning.
+
 ## Import sources from config
 
 When you configure contact sources in `config.toml`, you can run:

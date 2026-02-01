@@ -3,7 +3,9 @@ use crate::error::{invalid_input, not_found};
 use crate::util::{format_interaction_kind, now_utc};
 use anyhow::{Context as _, Result};
 use clap::{ArgAction, Args, Subcommand};
-use knotter_config::{ContactSourceKind, EmailAccountTls, EmailMergePolicy, MacosSourceConfig};
+use knotter_config::{
+    ContactSourceKind, EmailAccountTls, EmailMergePolicy, MacosSourceConfig, TelegramMergePolicy,
+};
 use knotter_core::domain::{normalize_email, Contact, ContactId, InteractionKind, TagName};
 use knotter_core::dto::{
     ContactDateDto, ExportContactDto, ExportInteractionDto, ExportMetadataDto, ExportSnapshotDto,
@@ -12,12 +14,13 @@ use knotter_store::error::StoreErrorKind;
 use knotter_store::repo::contacts::{ContactNew, ContactUpdate};
 use knotter_store::repo::ContactDateNew;
 use knotter_store::repo::EmailMessageRecord;
-use knotter_store::repo::EmailOps;
+use knotter_store::repo::{EmailOps, TelegramAccountNew, TelegramMessageRecord, TelegramSyncState};
 use knotter_sync::carddav::CardDavSource;
 use knotter_sync::email::{fetch_mailbox_headers, EmailAccount, EmailHeader, EmailTls};
 use knotter_sync::ics::{self, IcsExportOptions};
 use knotter_sync::macos::MacosContactsSource;
 use knotter_sync::source::VcfSource;
+use knotter_sync::telegram::{self, TelegramAccount as SyncTelegramAccount, TelegramUser};
 use knotter_sync::vcf;
 use serde::Serialize;
 use std::collections::HashSet;
@@ -32,6 +35,7 @@ pub enum ImportCommand {
     #[command(name = "carddav", alias = "gmail")]
     Carddav(ImportCarddavArgs),
     Email(ImportEmailArgs),
+    Telegram(ImportTelegramArgs),
     Source(ImportSourceArgs),
 }
 
@@ -106,6 +110,18 @@ pub struct ImportEmailArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct ImportTelegramArgs {
+    #[arg(long, value_name = "ACCOUNT", action = ArgAction::Append)]
+    pub account: Vec<String>,
+    #[arg(long, conflicts_with = "messages_only")]
+    pub contacts_only: bool,
+    #[arg(long, conflicts_with = "contacts_only")]
+    pub messages_only: bool,
+    #[command(flatten)]
+    pub common: ImportCommonArgs,
+}
+
+#[derive(Debug, Args)]
 pub struct SyncArgs {
     #[command(flatten)]
     pub common: ImportCommonArgs,
@@ -114,6 +130,8 @@ pub struct SyncArgs {
         help = "Force a full resync on UIDVALIDITY changes (may duplicate touches when Message-ID is missing)"
     )]
     pub force_uidvalidity_resync: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub no_telegram: bool,
     #[arg(long, action = ArgAction::SetTrue)]
     pub no_loops: bool,
     #[arg(long, action = ArgAction::SetTrue)]
@@ -133,6 +151,7 @@ trait SyncRunner {
         common: &ImportCommonArgs,
         force_uidvalidity_resync: bool,
     ) -> Result<()>;
+    fn import_telegram(&self, ctx: &Context<'_>, common: &ImportCommonArgs) -> Result<()>;
     fn apply_loops(&self, ctx: &Context<'_>, dry_run: bool) -> Result<()>;
     fn remind(&self, ctx: &Context<'_>, dry_run: bool) -> Result<()>;
 }
@@ -167,6 +186,16 @@ impl SyncRunner for DefaultSyncRunner {
             common: common.clone(),
         };
         import_email(ctx, args)
+    }
+
+    fn import_telegram(&self, ctx: &Context<'_>, common: &ImportCommonArgs) -> Result<()> {
+        let args = ImportTelegramArgs {
+            account: Vec::new(),
+            contacts_only: false,
+            messages_only: false,
+            common: common.clone(),
+        };
+        import_telegram(ctx, args)
     }
 
     fn apply_loops(&self, ctx: &Context<'_>, dry_run: bool) -> Result<()> {
@@ -245,6 +274,21 @@ struct EmailImportReport {
     contacts_merged: usize,
     contacts_matched: usize,
     merge_candidates_created: usize,
+    touches_recorded: usize,
+    warnings: Vec<String>,
+    dry_run: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct TelegramImportReport {
+    accounts: usize,
+    users_seen: usize,
+    contacts_created: usize,
+    contacts_matched: usize,
+    contacts_merged: usize,
+    merge_candidates_created: usize,
+    messages_seen: usize,
+    messages_imported: usize,
     touches_recorded: usize,
     warnings: Vec<String>,
     dry_run: bool,
@@ -559,6 +603,197 @@ pub fn import_email(ctx: &Context<'_>, args: ImportEmailArgs) -> Result<()> {
     Ok(())
 }
 
+fn import_telegram_account(
+    ctx: &Context<'_>,
+    account_cfg: &knotter_config::TelegramAccountConfig,
+    options: &ImportOptions,
+    contacts_only: bool,
+    messages_only: bool,
+    report: &mut TelegramImportReport,
+) -> Result<bool> {
+    let now_utc = now_utc();
+    let api_hash = resolve_required_env(&account_cfg.api_hash_env, "telegram api hash")?;
+    let session_path = match &account_cfg.session_path {
+        Some(path) => path.clone(),
+        None => default_telegram_session_path(&account_cfg.name)?,
+    };
+    let account = SyncTelegramAccount {
+        name: account_cfg.name.clone(),
+        api_id: account_cfg.api_id,
+        api_hash,
+        phone: account_cfg.phone.clone(),
+        session_path,
+    };
+
+    let mut client = telegram::connect(account)?;
+    client.ensure_authorized()?;
+
+    import_telegram_account_with_client(
+        ctx,
+        account_cfg,
+        options,
+        contacts_only,
+        messages_only,
+        report,
+        &mut *client,
+        now_utc,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn import_telegram_account_with_client(
+    ctx: &Context<'_>,
+    account_cfg: &knotter_config::TelegramAccountConfig,
+    options: &ImportOptions,
+    contacts_only: bool,
+    messages_only: bool,
+    report: &mut TelegramImportReport,
+    client: &mut dyn telegram::TelegramClient,
+    now_utc: i64,
+) -> Result<bool> {
+    let ctx = TelegramImportContext {
+        ctx,
+        options,
+        now_utc,
+        account_name: &account_cfg.name,
+        merge_policy: account_cfg.merge_policy,
+        allowlist_user_ids: &account_cfg.allowlist_user_ids,
+        snippet_len: account_cfg.snippet_len,
+        messages_only,
+    };
+
+    let mut stop_all = false;
+    let users = client.list_users()?;
+    report.users_seen += users.len();
+
+    for user in users {
+        if user.is_bot {
+            continue;
+        }
+        if !ctx.allowlist_user_ids.is_empty() && !ctx.allowlist_user_ids.contains(&user.id) {
+            continue;
+        }
+
+        let contact_id = resolve_telegram_contact(&ctx, &user, report)?;
+        let Some(contact_id) = contact_id else {
+            if ctx.options.retry_skipped {
+                stop_all = true;
+                break;
+            }
+            continue;
+        };
+
+        if contacts_only {
+            continue;
+        }
+
+        let stop_messages = import_telegram_messages(&ctx, client, &user, contact_id, report)?;
+        if stop_messages {
+            stop_all = true;
+            break;
+        }
+    }
+
+    Ok(stop_all)
+}
+
+pub fn import_telegram(ctx: &Context<'_>, args: ImportTelegramArgs) -> Result<()> {
+    if args.contacts_only && args.messages_only {
+        return Err(invalid_input(
+            "telegram import: --contacts-only and --messages-only are mutually exclusive",
+        ));
+    }
+
+    let accounts = if args.account.is_empty() {
+        ctx.config.contacts.telegram_accounts.clone()
+    } else {
+        let mut selected = Vec::new();
+        for name in &args.account {
+            let account = ctx
+                .config
+                .contacts
+                .telegram_account(name)
+                .ok_or_else(|| not_found(format!("telegram account {} not found", name)))?;
+            selected.push(account.clone());
+        }
+        selected
+    };
+
+    if accounts.is_empty() {
+        return Err(invalid_input("no telegram accounts configured"));
+    }
+
+    let mut report = TelegramImportReport {
+        accounts: 0,
+        users_seen: 0,
+        contacts_created: 0,
+        contacts_matched: 0,
+        contacts_merged: 0,
+        merge_candidates_created: 0,
+        messages_seen: 0,
+        messages_imported: 0,
+        touches_recorded: 0,
+        warnings: Vec::new(),
+        dry_run: args.common.dry_run,
+    };
+
+    let mut stop_all = false;
+    let mut first_error: Option<anyhow::Error> = None;
+    for account_cfg in &accounts {
+        if stop_all {
+            break;
+        }
+        let options = build_import_options(&args.common, account_cfg.tag.as_deref())?;
+        report.accounts += 1;
+        let result = import_telegram_account(
+            ctx,
+            account_cfg,
+            &options,
+            args.contacts_only,
+            args.messages_only,
+            &mut report,
+        );
+        match result {
+            Ok(stop) => stop_all = stop,
+            Err(err) => {
+                report.warnings.push(format!(
+                    "telegram account {} failed: {}",
+                    account_cfg.name, err
+                ));
+                if first_error.is_none() {
+                    first_error = Some(err);
+                }
+                stop_all = true;
+            }
+        }
+    }
+
+    if ctx.json {
+        print_json(&report)?;
+    } else {
+        println!(
+            "telegram import: {} account(s), {} user(s), {} message(s), {} touch(es), {} merge candidate(s)",
+            report.accounts,
+            report.users_seen,
+            report.messages_seen,
+            report.touches_recorded,
+            report.merge_candidates_created
+        );
+        if !report.warnings.is_empty() {
+            println!("warnings:");
+            for warning in report.warnings {
+                println!("  - {}", warning);
+            }
+        }
+    }
+
+    if let Some(err) = first_error {
+        Err(err)
+    } else {
+        Ok(())
+    }
+}
+
 pub fn sync_all(ctx: &Context<'_>, args: SyncArgs) -> Result<()> {
     sync_all_with_runner(ctx, args, &DefaultSyncRunner)
 }
@@ -597,9 +832,22 @@ fn sync_all_with_runner(ctx: &Context<'_>, args: SyncArgs, runner: &dyn SyncRunn
         );
     }
 
+    if !args.no_telegram {
+        if ctx.config.contacts.telegram_accounts.is_empty() {
+            println!("no telegram accounts configured; skipping telegram import");
+        } else {
+            ran_any = true;
+            record_sync_result(
+                "telegram import".to_string(),
+                runner.import_telegram(ctx, &args.common),
+                &mut errors,
+            );
+        }
+    }
+
     if !ran_any {
         return Err(invalid_input(
-            "no contact sources or email accounts configured",
+            "no contact sources, email accounts, or telegram accounts configured",
         ));
     }
 
@@ -1365,6 +1613,596 @@ fn format_email_note(direction: &str, subject: Option<&str>) -> String {
     }
 }
 
+struct TelegramImportContext<'a> {
+    ctx: &'a Context<'a>,
+    options: &'a ImportOptions,
+    now_utc: i64,
+    account_name: &'a str,
+    merge_policy: TelegramMergePolicy,
+    allowlist_user_ids: &'a [i64],
+    snippet_len: usize,
+    messages_only: bool,
+}
+
+fn resolve_telegram_contact(
+    telegram_ctx: &TelegramImportContext<'_>,
+    user: &TelegramUser,
+    report: &mut TelegramImportReport,
+) -> Result<Option<ContactId>> {
+    let username = normalize_telegram_username(user.username.as_deref());
+    let phone = normalize_optional_string(user.phone.as_deref());
+    let display_name = user.display_name();
+    let warn_messages_only_ambiguous = |report: &mut TelegramImportReport, label: &str| {
+        report.warnings.push(format!(
+            "telegram user {} matches multiple contacts by {label}; messages-only skips staging",
+            user.id
+        ));
+    };
+
+    if let Some(contact_id) = telegram_ctx
+        .ctx
+        .store
+        .telegram_accounts()
+        .find_contact_id_by_user_id(user.id)?
+    {
+        return attach_telegram_account(
+            telegram_ctx,
+            contact_id,
+            user,
+            username,
+            phone,
+            report,
+            true,
+        );
+    }
+
+    if let Some(username) = username.as_deref() {
+        let ids = telegram_ctx
+            .ctx
+            .store
+            .telegram_accounts()
+            .list_contact_ids_by_username(username)?;
+        if !ids.is_empty() {
+            let mut matches = Vec::new();
+            for id in ids {
+                if let Some(contact) = telegram_ctx.ctx.store.contacts().get(id)? {
+                    matches.push(contact);
+                }
+            }
+            let active_matches: Vec<Contact> = matches
+                .iter()
+                .filter(|contact| contact.archived_at.is_none())
+                .cloned()
+                .collect();
+            if active_matches.len() == 1 {
+                let contact = &active_matches[0];
+                return attach_telegram_account(
+                    telegram_ctx,
+                    contact.id,
+                    user,
+                    Some(username.to_string()),
+                    phone,
+                    report,
+                    true,
+                );
+            }
+            if active_matches.is_empty() && !matches.is_empty() {
+                report.warnings.push(format!(
+                    "telegram username {username} matches archived contact"
+                ));
+                return Ok(None);
+            }
+            if active_matches.len() > 1 {
+                if telegram_ctx.messages_only {
+                    warn_messages_only_ambiguous(report, "username");
+                    return Ok(None);
+                }
+                return stage_telegram_merge_candidates(
+                    telegram_ctx,
+                    report,
+                    user,
+                    Some(username.to_string()),
+                    phone,
+                    display_name.clone(),
+                    active_matches,
+                    "telegram-username-ambiguous",
+                    "username",
+                );
+            }
+        }
+    }
+
+    if let Some(username) = username.as_deref() {
+        let mut matches = Vec::new();
+        matches.extend(telegram_ctx.ctx.store.contacts().list_by_handle(username)?);
+        let at_username = format!("@{username}");
+        if at_username != username {
+            matches.extend(
+                telegram_ctx
+                    .ctx
+                    .store
+                    .contacts()
+                    .list_by_handle(&at_username)?,
+            );
+        }
+        if !matches.is_empty() {
+            let mut seen = HashSet::new();
+            let mut unique_matches = Vec::new();
+            for contact in matches {
+                if seen.insert(contact.id) {
+                    unique_matches.push(contact);
+                }
+            }
+            let active_matches: Vec<Contact> = unique_matches
+                .iter()
+                .filter(|contact| contact.archived_at.is_none())
+                .cloned()
+                .collect();
+            if active_matches.len() == 1 {
+                let contact = &active_matches[0];
+                return attach_telegram_account(
+                    telegram_ctx,
+                    contact.id,
+                    user,
+                    Some(username.to_string()),
+                    phone,
+                    report,
+                    true,
+                );
+            }
+            if active_matches.is_empty() && !unique_matches.is_empty() {
+                report.warnings.push(format!(
+                    "telegram handle {username} matches archived contact"
+                ));
+                return Ok(None);
+            }
+            if active_matches.len() > 1 {
+                if telegram_ctx.messages_only {
+                    warn_messages_only_ambiguous(report, "handle");
+                    return Ok(None);
+                }
+                return stage_telegram_merge_candidates(
+                    telegram_ctx,
+                    report,
+                    user,
+                    Some(username.to_string()),
+                    phone,
+                    display_name.clone(),
+                    active_matches,
+                    "telegram-handle-ambiguous",
+                    "handle",
+                );
+            }
+        }
+    }
+
+    if matches!(
+        telegram_ctx.merge_policy,
+        TelegramMergePolicy::NameOrUsername
+    ) && !display_name.trim().is_empty()
+    {
+        let matches = telegram_ctx
+            .ctx
+            .store
+            .contacts()
+            .list_by_display_name(&display_name)?;
+        let active_matches: Vec<Contact> = matches
+            .iter()
+            .filter(|contact| contact.archived_at.is_none())
+            .cloned()
+            .collect();
+        if active_matches.len() == 1 {
+            let contact = &active_matches[0];
+            if telegram_ctx.options.dry_run {
+                report.contacts_merged += 1;
+                return Ok(Some(contact.id));
+            }
+            let result = attach_telegram_account(
+                telegram_ctx,
+                contact.id,
+                user,
+                username,
+                phone,
+                report,
+                false,
+            );
+            if matches!(result, Ok(Some(_))) {
+                report.contacts_merged += 1;
+            }
+            return result;
+        }
+        if active_matches.is_empty() && !matches.is_empty() {
+            report.warnings.push(format!(
+                "telegram user {} matches archived contact",
+                user.id
+            ));
+            return Ok(None);
+        }
+        if active_matches.len() > 1 {
+            if telegram_ctx.messages_only {
+                warn_messages_only_ambiguous(report, "name");
+                return Ok(None);
+            }
+            return stage_telegram_merge_candidates(
+                telegram_ctx,
+                report,
+                user,
+                username,
+                phone,
+                display_name,
+                active_matches,
+                "telegram-name-ambiguous",
+                "name",
+            );
+        }
+    }
+
+    if telegram_ctx.messages_only {
+        report.warnings.push(format!(
+            "telegram user {} not linked to a contact; skipping messages",
+            user.id
+        ));
+        return Ok(None);
+    }
+
+    report.contacts_created += 1;
+    if telegram_ctx.options.dry_run {
+        return Ok(None);
+    }
+
+    let new_contact = ContactNew {
+        display_name,
+        email: None,
+        phone: None,
+        handle: None,
+        timezone: None,
+        next_touchpoint_at: None,
+        cadence_days: None,
+        archived_at: None,
+    };
+    let created = telegram_ctx.ctx.store.contacts().create_with_tags(
+        telegram_ctx.now_utc,
+        new_contact,
+        telegram_ctx.options.extra_tags.clone(),
+    )?;
+    telegram_ctx.ctx.store.telegram_accounts().upsert(
+        telegram_ctx.now_utc,
+        TelegramAccountNew {
+            contact_id: created.id,
+            telegram_user_id: user.id,
+            username,
+            phone,
+            first_name: normalize_optional_string(user.first_name.as_deref()),
+            last_name: normalize_optional_string(user.last_name.as_deref()),
+            source: Some(format!("telegram:{}", telegram_ctx.account_name)),
+        },
+    )?;
+    Ok(Some(created.id))
+}
+
+fn attach_telegram_account(
+    telegram_ctx: &TelegramImportContext<'_>,
+    contact_id: ContactId,
+    user: &TelegramUser,
+    username: Option<String>,
+    phone: Option<String>,
+    report: &mut TelegramImportReport,
+    matched: bool,
+) -> Result<Option<ContactId>> {
+    let contact = telegram_ctx
+        .ctx
+        .store
+        .contacts()
+        .get(contact_id)?
+        .ok_or_else(|| not_found("contact not found"))?;
+    if contact.archived_at.is_some()
+        && !telegram_ctx
+            .ctx
+            .store
+            .merge_candidates()
+            .has_open_for_contact(contact_id)?
+    {
+        report.warnings.push(format!(
+            "telegram user {} belongs to archived contact",
+            user.id
+        ));
+        return Ok(None);
+    }
+
+    if telegram_ctx.options.dry_run {
+        if matched {
+            report.contacts_matched += 1;
+        }
+        return Ok(Some(contact_id));
+    }
+
+    if let Err(err) = telegram_ctx.ctx.store.telegram_accounts().upsert(
+        telegram_ctx.now_utc,
+        TelegramAccountNew {
+            contact_id,
+            telegram_user_id: user.id,
+            username,
+            phone,
+            first_name: normalize_optional_string(user.first_name.as_deref()),
+            last_name: normalize_optional_string(user.last_name.as_deref()),
+            source: Some(format!("telegram:{}", telegram_ctx.account_name)),
+        },
+    ) {
+        if err.kind() == StoreErrorKind::DuplicateTelegramUser {
+            report.warnings.push(format!(
+                "telegram user {} already linked to another contact",
+                user.id
+            ));
+            return Ok(None);
+        }
+        return Err(err.into());
+    }
+    merge_tags(
+        telegram_ctx.ctx,
+        &contact_id,
+        telegram_ctx.options.extra_tags.clone(),
+    )?;
+    if matched {
+        report.contacts_matched += 1;
+    }
+    Ok(Some(contact_id))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stage_telegram_merge_candidates(
+    telegram_ctx: &TelegramImportContext<'_>,
+    report: &mut TelegramImportReport,
+    user: &TelegramUser,
+    username: Option<String>,
+    phone: Option<String>,
+    display_name: String,
+    matches: Vec<Contact>,
+    reason: &str,
+    match_label: &str,
+) -> Result<Option<ContactId>> {
+    if telegram_ctx.options.dry_run {
+        report.contacts_created += 1;
+        report.merge_candidates_created += matches.len();
+        report.warnings.push(format!(
+            "telegram user {} matches multiple contacts by {match_label}; dry-run would stage contact",
+            user.id
+        ));
+        return Ok(None);
+    }
+
+    let new_contact = ContactNew {
+        display_name,
+        email: None,
+        phone: None,
+        handle: None,
+        timezone: None,
+        next_touchpoint_at: None,
+        cadence_days: None,
+        archived_at: Some(telegram_ctx.now_utc),
+    };
+    let tx = telegram_ctx
+        .ctx
+        .store
+        .connection()
+        .unchecked_transaction()?;
+    let created = knotter_store::repo::ContactsRepo::new(&tx).create_with_tags(
+        telegram_ctx.now_utc,
+        new_contact,
+        telegram_ctx.options.extra_tags.clone(),
+    )?;
+    knotter_store::repo::TelegramAccountsRepo::new(&tx).upsert(
+        telegram_ctx.now_utc,
+        TelegramAccountNew {
+            contact_id: created.id,
+            telegram_user_id: user.id,
+            username,
+            phone,
+            first_name: normalize_optional_string(user.first_name.as_deref()),
+            last_name: normalize_optional_string(user.last_name.as_deref()),
+            source: Some(format!("telegram:{}", telegram_ctx.account_name)),
+        },
+    )?;
+
+    let mut candidates_created = 0;
+    for existing in matches {
+        let result = knotter_store::repo::MergeCandidatesRepo::new(&tx).create(
+            telegram_ctx.now_utc,
+            created.id,
+            existing.id,
+            knotter_store::repo::MergeCandidateCreate {
+                reason: reason.to_string(),
+                source: Some(telegram_ctx.account_name.to_string()),
+                preferred_contact_id: Some(existing.id),
+            },
+        )?;
+        if result.created {
+            candidates_created += 1;
+        }
+    }
+    tx.commit()?;
+
+    report.contacts_created += 1;
+    report.merge_candidates_created += candidates_created;
+    report.warnings.push(format!(
+        "telegram user {} matches multiple contacts by {match_label}; staged contact {} for merge",
+        user.id, created.id
+    ));
+    Ok(Some(created.id))
+}
+
+fn import_telegram_messages(
+    telegram_ctx: &TelegramImportContext<'_>,
+    client: &mut dyn telegram::TelegramClient,
+    user: &TelegramUser,
+    contact_id: ContactId,
+    report: &mut TelegramImportReport,
+) -> Result<bool> {
+    let existing = telegram_ctx
+        .ctx
+        .store
+        .telegram_sync()
+        .load_state(telegram_ctx.account_name, user.id)?;
+    let last_message_id = existing.map(|state| state.last_message_id).unwrap_or(0);
+
+    let batch = client.fetch_messages(user.id, last_message_id, telegram_ctx.options.limit)?;
+    let mut messages = batch.messages;
+    messages.sort_by_key(|message| message.id);
+
+    let mut new_last_message_id = last_message_id;
+    for message in messages {
+        report.messages_seen += 1;
+        new_last_message_id = new_last_message_id.max(message.id);
+
+        if telegram_ctx.options.dry_run {
+            continue;
+        }
+
+        let direction = if message.outgoing {
+            "outbound".to_string()
+        } else {
+            "inbound".to_string()
+        };
+        let snippet = snippet_from_text(message.text.as_deref(), telegram_ctx.snippet_len);
+        let record = TelegramMessageRecord {
+            account: telegram_ctx.account_name.to_string(),
+            peer_id: message.peer_id,
+            message_id: message.id,
+            contact_id,
+            occurred_at: message.occurred_at,
+            direction: direction.clone(),
+            snippet: snippet.clone(),
+            created_at: telegram_ctx.now_utc,
+        };
+
+        let tx = telegram_ctx
+            .ctx
+            .store
+            .connection()
+            .unchecked_transaction()?;
+        let sync_repo = knotter_store::repo::TelegramSyncRepo::new(&tx);
+        let interactions = knotter_store::repo::InteractionsRepo::new(&tx);
+        let mut inserted = false;
+        if sync_repo.record_message(&record)? {
+            let note = format_telegram_note(&direction, snippet.as_deref());
+            let interaction = knotter_store::repo::InteractionNew {
+                contact_id,
+                occurred_at: record.occurred_at,
+                created_at: record.created_at,
+                kind: InteractionKind::Telegram,
+                note,
+                follow_up_at: None,
+            };
+            interactions.add_with_reschedule_in_tx(
+                record.created_at,
+                interaction,
+                telegram_ctx.ctx.config.interactions.auto_reschedule,
+            )?;
+            inserted = true;
+        }
+        tx.commit()?;
+        if inserted {
+            report.messages_imported += 1;
+            report.touches_recorded += 1;
+        }
+    }
+
+    if !telegram_ctx.options.dry_run {
+        if !batch.complete {
+            report.warnings.push(format!(
+                "telegram account {} hit --limit for user {}; sync state not advanced",
+                telegram_ctx.account_name, user.id
+            ));
+            return Ok(false);
+        }
+        let state = TelegramSyncState {
+            account: telegram_ctx.account_name.to_string(),
+            peer_id: user.id,
+            last_message_id: new_last_message_id,
+            last_seen_at: Some(telegram_ctx.now_utc),
+        };
+        telegram_ctx
+            .ctx
+            .store
+            .telegram_sync()
+            .upsert_state(&state)?;
+    }
+
+    Ok(false)
+}
+
+fn normalize_telegram_username(raw: Option<&str>) -> Option<String> {
+    let value = raw?;
+    let trimmed = value.trim().trim_start_matches('@');
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.to_ascii_lowercase())
+}
+
+fn normalize_optional_string(raw: Option<&str>) -> Option<String> {
+    let value = raw?;
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn snippet_from_text(text: Option<&str>, max_len: usize) -> Option<String> {
+    let raw = text?;
+    let collapsed = collapse_whitespace(raw);
+    if collapsed.is_empty() {
+        return None;
+    }
+    Some(truncate_with_ellipsis(&collapsed, max_len))
+}
+
+fn collapse_whitespace(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut last_was_space = false;
+    for ch in value.chars() {
+        if ch.is_whitespace() {
+            if !last_was_space {
+                out.push(' ');
+                last_was_space = true;
+            }
+        } else {
+            out.push(ch);
+            last_was_space = false;
+        }
+    }
+    out.trim().to_string()
+}
+
+fn truncate_with_ellipsis(value: &str, max_len: usize) -> String {
+    if max_len == 0 {
+        return String::new();
+    }
+    let total_len = value.chars().count();
+    if total_len <= max_len {
+        return value.to_string();
+    }
+    if max_len <= 3 {
+        return value.chars().take(max_len).collect();
+    }
+    let mut out: String = value.chars().take(max_len - 3).collect();
+    out.push_str("...");
+    out
+}
+
+fn format_telegram_note(direction: &str, snippet: Option<&str>) -> String {
+    let base = if direction == "outbound" {
+        "Sent Telegram message"
+    } else {
+        "Telegram message"
+    };
+    match snippet {
+        Some(value) if !value.trim().is_empty() => format!("{base}: {}", value.trim()),
+        _ => base.to_string(),
+    }
+}
+
 fn apply_extra_tags(mut contact: vcf::VcfContact, extra_tags: &[TagName]) -> vcf::VcfContact {
     if extra_tags.is_empty() {
         return contact;
@@ -1439,6 +2277,37 @@ fn resolve_password(
         )));
     }
     Ok(trimmed.to_string())
+}
+
+fn resolve_required_env(var: &str, label: &str) -> Result<String> {
+    let value = std::env::var(var).map_err(|_| {
+        invalid_input(format!(
+            "environment variable {var} is not set (required for {label})"
+        ))
+    })?;
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(invalid_input(format!(
+            "environment variable {var} is empty (required for {label})"
+        )));
+    }
+    Ok(trimmed.to_string())
+}
+
+fn default_telegram_session_path(account_name: &str) -> Result<PathBuf> {
+    ensure_safe_telegram_account_name(account_name)?;
+    let dir = knotter_store::paths::ensure_data_subdir("telegram")?;
+    Ok(dir.join(format!("{account_name}.session")))
+}
+
+fn ensure_safe_telegram_account_name(account_name: &str) -> Result<()> {
+    let mut components = Path::new(account_name).components();
+    match components.next() {
+        Some(std::path::Component::Normal(_)) if components.next().is_none() => Ok(()),
+        _ => Err(invalid_input(
+            "telegram account name must be a single path segment",
+        )),
+    }
 }
 
 fn default_user_agent() -> String {
@@ -1831,15 +2700,112 @@ mod tests {
     use super::*;
     use knotter_config::{
         AppConfig, ContactSourceConfig, ContactSourceKind, EmailAccountConfig, EmailAccountTls,
-        EmailMergePolicy, MacosSourceConfig,
+        EmailMergePolicy, MacosSourceConfig, TelegramAccountConfig, TelegramMergePolicy,
+        DEFAULT_TELEGRAM_SNIPPET_LEN,
     };
     use knotter_store::repo::ContactNew;
     use knotter_store::Store;
     use knotter_sync::email::{EmailAddress, EmailHeader};
+    use knotter_sync::telegram::{TelegramMessage, TelegramMessageBatch};
     use knotter_sync::vcf;
     use std::cell::{Cell, RefCell};
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
     use tempfile::TempDir;
+
+    type TelegramResult<T> = std::result::Result<T, knotter_sync::SyncError>;
+
+    fn telegram_account_config(name: &str) -> TelegramAccountConfig {
+        TelegramAccountConfig {
+            name: name.to_string(),
+            api_id: 123,
+            api_hash_env: "KNOTTER_TELEGRAM_HASH".to_string(),
+            phone: "+15551234567".to_string(),
+            session_path: None,
+            tag: None,
+            merge_policy: TelegramMergePolicy::NameOrUsername,
+            allowlist_user_ids: Vec::new(),
+            snippet_len: DEFAULT_TELEGRAM_SNIPPET_LEN,
+        }
+    }
+
+    fn empty_telegram_report(dry_run: bool) -> TelegramImportReport {
+        TelegramImportReport {
+            accounts: 0,
+            users_seen: 0,
+            contacts_created: 0,
+            contacts_matched: 0,
+            contacts_merged: 0,
+            merge_candidates_created: 0,
+            messages_seen: 0,
+            messages_imported: 0,
+            touches_recorded: 0,
+            warnings: Vec::new(),
+            dry_run,
+        }
+    }
+
+    fn telegram_user(id: i64, username: Option<&str>, first_name: Option<&str>) -> TelegramUser {
+        TelegramUser {
+            id,
+            username: username.map(|value| value.to_string()),
+            phone: None,
+            first_name: first_name.map(|value| value.to_string()),
+            last_name: None,
+            is_bot: false,
+        }
+    }
+
+    #[derive(Clone)]
+    struct FakeTelegramClient {
+        account_name: String,
+        users: Vec<TelegramUser>,
+        batches: HashMap<i64, TelegramMessageBatch>,
+    }
+
+    impl FakeTelegramClient {
+        fn new(account_name: &str, users: Vec<TelegramUser>) -> Self {
+            Self {
+                account_name: account_name.to_string(),
+                users,
+                batches: HashMap::new(),
+            }
+        }
+
+        fn with_batch(mut self, peer_id: i64, batch: TelegramMessageBatch) -> Self {
+            self.batches.insert(peer_id, batch);
+            self
+        }
+    }
+
+    impl telegram::TelegramClient for FakeTelegramClient {
+        fn account_name(&self) -> &str {
+            &self.account_name
+        }
+
+        fn list_users(&mut self) -> TelegramResult<Vec<TelegramUser>> {
+            Ok(self.users.clone())
+        }
+
+        fn fetch_messages(
+            &mut self,
+            peer_id: i64,
+            _since_message_id: i64,
+            _limit: Option<usize>,
+        ) -> TelegramResult<TelegramMessageBatch> {
+            Ok(self
+                .batches
+                .get(&peer_id)
+                .cloned()
+                .unwrap_or(TelegramMessageBatch {
+                    messages: Vec::new(),
+                    complete: true,
+                }))
+        }
+
+        fn ensure_authorized(&mut self) -> TelegramResult<()> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn email_import_stages_ambiguous_name_matches() {
@@ -2365,6 +3331,336 @@ mod tests {
             .all(|warning| !warning.contains("archived contact")));
     }
 
+    #[test]
+    fn telegram_import_matches_handle() {
+        let store = Store::open_in_memory().expect("open store");
+        store.migrate().expect("migrate");
+        let now = 1_700_000_000;
+        let contact = store
+            .contacts()
+            .create(
+                now,
+                ContactNew {
+                    display_name: "Alice".to_string(),
+                    email: None,
+                    phone: None,
+                    handle: Some("@alice".to_string()),
+                    timezone: None,
+                    next_touchpoint_at: None,
+                    cadence_days: None,
+                    archived_at: None,
+                },
+            )
+            .expect("create contact");
+
+        let config = AppConfig::default();
+        let ctx = Context {
+            store: &store,
+            json: false,
+            config: &config,
+        };
+        let options = ImportOptions {
+            dry_run: false,
+            limit: None,
+            retry_skipped: false,
+            extra_tags: Vec::new(),
+        };
+        let account_cfg = telegram_account_config("primary");
+        let mut report = empty_telegram_report(false);
+        let mut client = FakeTelegramClient::new(
+            "primary",
+            vec![telegram_user(7, Some("alice"), Some("Alice"))],
+        );
+
+        let stop = import_telegram_account_with_client(
+            &ctx,
+            &account_cfg,
+            &options,
+            true,
+            false,
+            &mut report,
+            &mut client,
+            now,
+        )
+        .expect("import");
+
+        assert!(!stop);
+        assert_eq!(report.contacts_matched, 1);
+        let linked = store
+            .telegram_accounts()
+            .list_for_contact(contact.id)
+            .expect("list telegram accounts");
+        assert_eq!(linked.len(), 1);
+    }
+
+    #[test]
+    fn telegram_messages_only_skips_contact_creation() {
+        let store = Store::open_in_memory().expect("open store");
+        store.migrate().expect("migrate");
+        let now = 1_700_000_000;
+
+        let config = AppConfig::default();
+        let ctx = Context {
+            store: &store,
+            json: false,
+            config: &config,
+        };
+        let options = ImportOptions {
+            dry_run: false,
+            limit: None,
+            retry_skipped: false,
+            extra_tags: Vec::new(),
+        };
+        let account_cfg = telegram_account_config("primary");
+        let mut report = empty_telegram_report(false);
+        let mut client = FakeTelegramClient::new(
+            "primary",
+            vec![telegram_user(11, Some("alice"), Some("Alice"))],
+        );
+
+        let stop = import_telegram_account_with_client(
+            &ctx,
+            &account_cfg,
+            &options,
+            false,
+            true,
+            &mut report,
+            &mut client,
+            now,
+        )
+        .expect("import");
+
+        assert!(!stop);
+        let matches = store
+            .contacts()
+            .list_by_display_name("Alice")
+            .expect("list contacts");
+        assert!(matches.is_empty());
+        assert_eq!(report.contacts_created, 0);
+        assert!(report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("not linked")));
+    }
+
+    #[test]
+    fn telegram_messages_only_matches_existing_handle() {
+        let store = Store::open_in_memory().expect("open store");
+        store.migrate().expect("migrate");
+        let now = 1_700_000_000;
+
+        let contact = store
+            .contacts()
+            .create(
+                now,
+                ContactNew {
+                    display_name: "Dora".to_string(),
+                    email: None,
+                    phone: None,
+                    handle: Some("@dora".to_string()),
+                    timezone: None,
+                    next_touchpoint_at: None,
+                    cadence_days: None,
+                    archived_at: None,
+                },
+            )
+            .expect("create contact");
+
+        let config = AppConfig::default();
+        let ctx = Context {
+            store: &store,
+            json: false,
+            config: &config,
+        };
+        let options = ImportOptions {
+            dry_run: false,
+            limit: None,
+            retry_skipped: false,
+            extra_tags: Vec::new(),
+        };
+        let account_cfg = telegram_account_config("primary");
+        let mut report = empty_telegram_report(false);
+        let user = telegram_user(55, Some("dora"), Some("Dora"));
+        let batch = TelegramMessageBatch {
+            messages: vec![TelegramMessage {
+                id: 1,
+                peer_id: user.id,
+                sender_id: Some(user.id),
+                occurred_at: now - 5,
+                outgoing: false,
+                text: Some("hey".to_string()),
+            }],
+            complete: true,
+        };
+        let mut client =
+            FakeTelegramClient::new("primary", vec![user.clone()]).with_batch(user.id, batch);
+
+        let stop = import_telegram_account_with_client(
+            &ctx,
+            &account_cfg,
+            &options,
+            false,
+            true,
+            &mut report,
+            &mut client,
+            now,
+        )
+        .expect("import");
+
+        assert!(!stop);
+        let linked = store
+            .telegram_accounts()
+            .list_for_contact(contact.id)
+            .expect("list telegram accounts");
+        assert_eq!(linked.len(), 1);
+        let state = store
+            .telegram_sync()
+            .load_state("primary", user.id)
+            .expect("load state");
+        assert!(state.is_some());
+    }
+
+    #[test]
+    fn telegram_contacts_only_skips_messages_and_state() {
+        let store = Store::open_in_memory().expect("open store");
+        store.migrate().expect("migrate");
+        let now = 1_700_000_000;
+
+        let config = AppConfig::default();
+        let ctx = Context {
+            store: &store,
+            json: false,
+            config: &config,
+        };
+        let options = ImportOptions {
+            dry_run: false,
+            limit: None,
+            retry_skipped: false,
+            extra_tags: Vec::new(),
+        };
+        let account_cfg = telegram_account_config("primary");
+        let mut report = empty_telegram_report(false);
+        let user = telegram_user(21, Some("bob"), Some("Bob"));
+        let message = TelegramMessage {
+            id: 1,
+            peer_id: user.id,
+            sender_id: Some(user.id),
+            occurred_at: now - 10,
+            outgoing: false,
+            text: Some("hi".to_string()),
+        };
+        let batch = TelegramMessageBatch {
+            messages: vec![message],
+            complete: true,
+        };
+        let mut client =
+            FakeTelegramClient::new("primary", vec![user.clone()]).with_batch(user.id, batch);
+
+        let stop = import_telegram_account_with_client(
+            &ctx,
+            &account_cfg,
+            &options,
+            true,
+            false,
+            &mut report,
+            &mut client,
+            now,
+        )
+        .expect("import");
+
+        assert!(!stop);
+        let contacts = store
+            .contacts()
+            .list_by_display_name("Bob")
+            .expect("list contacts");
+        assert_eq!(contacts.len(), 1);
+        let linked = store
+            .telegram_accounts()
+            .list_for_contact(contacts[0].id)
+            .expect("list telegram accounts");
+        assert_eq!(linked.len(), 1);
+        let state = store
+            .telegram_sync()
+            .load_state("primary", user.id)
+            .expect("load state");
+        assert!(state.is_none());
+    }
+
+    #[test]
+    fn telegram_limit_incomplete_does_not_advance_state() {
+        let store = Store::open_in_memory().expect("open store");
+        store.migrate().expect("migrate");
+        let now = 1_700_000_000;
+
+        let contact = store
+            .contacts()
+            .create(
+                now,
+                ContactNew {
+                    display_name: "Cara".to_string(),
+                    email: None,
+                    phone: None,
+                    handle: None,
+                    timezone: None,
+                    next_touchpoint_at: None,
+                    cadence_days: None,
+                    archived_at: None,
+                },
+            )
+            .expect("create contact");
+
+        let config = AppConfig::default();
+        let ctx = Context {
+            store: &store,
+            json: false,
+            config: &config,
+        };
+        let options = ImportOptions {
+            dry_run: false,
+            limit: Some(1),
+            retry_skipped: false,
+            extra_tags: Vec::new(),
+        };
+        let telegram_ctx = TelegramImportContext {
+            ctx: &ctx,
+            options: &options,
+            now_utc: now,
+            account_name: "primary",
+            merge_policy: TelegramMergePolicy::NameOrUsername,
+            allowlist_user_ids: &[],
+            snippet_len: DEFAULT_TELEGRAM_SNIPPET_LEN,
+            messages_only: false,
+        };
+        let user = telegram_user(42, Some("cara"), Some("Cara"));
+        let batch = TelegramMessageBatch {
+            messages: vec![TelegramMessage {
+                id: 10,
+                peer_id: user.id,
+                sender_id: Some(user.id),
+                occurred_at: now - 5,
+                outgoing: false,
+                text: Some("hello".to_string()),
+            }],
+            complete: false,
+        };
+        let mut client = FakeTelegramClient::new("primary", Vec::new()).with_batch(user.id, batch);
+        let mut report = empty_telegram_report(false);
+
+        let stop =
+            import_telegram_messages(&telegram_ctx, &mut client, &user, contact.id, &mut report)
+                .expect("import messages");
+        assert!(!stop);
+        let state = store
+            .telegram_sync()
+            .load_state("primary", user.id)
+            .expect("load state");
+        assert!(state.is_none());
+        assert!(report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("hit --limit")));
+    }
+
     #[derive(Default)]
     struct TestRunner {
         calls: RefCell<Vec<String>>,
@@ -2407,6 +3703,10 @@ mod tests {
             self.record("email")
         }
 
+        fn import_telegram(&self, _ctx: &Context<'_>, _common: &ImportCommonArgs) -> Result<()> {
+            self.record("telegram")
+        }
+
         fn apply_loops(&self, _ctx: &Context<'_>, _dry_run: bool) -> Result<()> {
             self.record("loops")
         }
@@ -2425,6 +3725,7 @@ mod tests {
                 tag: Vec::new(),
             },
             force_uidvalidity_resync: false,
+            no_telegram: false,
             no_loops: false,
             no_remind: false,
         }

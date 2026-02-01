@@ -9,6 +9,7 @@ pub enum InteractionKind {
     Text,
     Hangout,
     Email,
+    Telegram,
     Other(String),
 }
 
