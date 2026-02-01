@@ -65,6 +65,7 @@ Optional flags:
 Notes:
 
 - The first run will prompt for Contacts access on macOS.
+- If `--group` is set, the group must already exist in Contacts; omit it to import all contacts.
 - The import uses the same vCard mapping rules and dedupe policy as `import vcf`.
 
 ## CardDAV import (Gmail, iCloud, and other providers)

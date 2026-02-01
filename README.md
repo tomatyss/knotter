@@ -174,6 +174,9 @@ knotter reads an optional TOML config file from:
 
 Use `--config /path/to/config.toml` to override the location.
 
+For setup-specific snippets (minimal, desktop/email notifications, CardDAV,
+IMAP, Telegram, loops), see `docs/configuration.md`.
+
 Full example (all sections + optional fields):
 
 ```toml
@@ -227,7 +230,8 @@ tag = "gmail"
 [[contacts.sources]]
 name = "macos"
 type = "macos"
-group = "Friends"
+# Optional: import only a named Contacts group (must already exist).
+# group = "Friends"
 tag = "personal"
 
 [[contacts.email_accounts]]

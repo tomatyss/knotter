@@ -828,7 +828,8 @@ tag = "gmail"
 [[contacts.sources]]
 name = "macos"
 type = "macos"
-group = "Friends"
+# Optional: import only a named Contacts group (must already exist).
+# group = "Friends"
 tag = "personal"
 
 [[contacts.email_accounts]]
@@ -911,7 +912,8 @@ tag = "gmail"
 [[contacts.sources]]
 name = "local"
 type = "macos"
-group = "Friends"
+# Optional: import only a named Contacts group (must already exist).
+# group = "Friends"
 tag = "personal"
 ```
 
