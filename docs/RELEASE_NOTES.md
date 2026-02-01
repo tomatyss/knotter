@@ -1,5 +1,10 @@
 # Release Notes
 
+## v4.1.0 (2026-02-01)
+
+### Maintenance
+- Release housekeeping: bump crate versions to 4.1.0.
+
 ## v0.4.0 (2026-02-01)
 
 ### Telegram Sync (1:1)

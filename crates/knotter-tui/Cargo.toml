@@ -1,6 +1,6 @@
 [package]
 name = "knotter-tui"
-version = "0.4.0"
+version = "4.1.0"
 authors = ["Tomatyss <tomatyss@users.noreply.github.com>"]
 license = "Apache-2.0"
 description = "Terminal-first personal CRM and friendship tracker (TUI)."
