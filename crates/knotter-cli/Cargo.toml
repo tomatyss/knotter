@@ -25,7 +25,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [features]
-default = ["dav-sync", "email-sync"]
+default = ["dav-sync", "email-sync", "telegram-sync"]
 desktop-notify = ["notify-rust"]
 email-notify = ["lettre"]
 dav-sync = ["knotter-sync/dav-sync"]

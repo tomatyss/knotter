@@ -39,7 +39,11 @@ on run argv
                     set cards to vcard of people
                 else
                     set targetGroup to item 1 of argv
-                    set targetGroupRef to first group whose name is targetGroup
+                    set matchingGroups to groups whose name is targetGroup
+                    if (count of matchingGroups) is 0 then
+                        error "Contacts group \"" & targetGroup & "\" not found. Create it in Contacts or omit group to import all contacts." number -1719
+                    end if
+                    set targetGroupRef to item 1 of matchingGroups
                     set cards to vcard of people of targetGroupRef
                 end if
             end tell

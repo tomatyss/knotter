@@ -828,7 +828,8 @@ tag = "gmail"
 [[contacts.sources]]
 name = "macos"
 type = "macos"
-group = "Friends"
+# Optional: import only a named Contacts group (must already exist).
+# group = "Friends"
 tag = "personal"
 
 [[contacts.email_accounts]]
@@ -911,7 +912,8 @@ tag = "gmail"
 [[contacts.sources]]
 name = "local"
 type = "macos"
-group = "Friends"
+# Optional: import only a named Contacts group (must already exist).
+# group = "Friends"
 tag = "personal"
 ```
 
@@ -1007,8 +1009,8 @@ Minimum expectations:
 
 ## 15. Feature flags (recommended)
 
-Feature flags keep optional integrations isolated. Default builds (v0.2.1+) enable
-CardDAV + email sync, while Telegram sync and notification backends remain opt-in:
+Feature flags keep optional integrations isolated. Default builds enable
+CardDAV, email, and Telegram sync, while notification backends remain opt-in:
 
 * `desktop-notify` feature:
 
@@ -1026,7 +1028,7 @@ CardDAV + email sync, while Telegram sync and notification backends remain opt-i
 
   * enables Telegram 1:1 import/sync
 
-Use `--no-default-features` for a minimal build and re-enable features explicitly.
+Use `--no-default-features` for a no-sync build and re-enable features explicitly.
 
 ---
 

@@ -3,6 +3,7 @@
 - [Overview](index.md)
 - [Architecture](ARCHITECTURE.md)
 - [Database Schema](DB_SCHEMA.md)
+- [Configuration](configuration.md)
 - [CLI Output](cli-output.md)
 - [Shell Completions](completions.md)
 - [Scheduling](scheduling.md)

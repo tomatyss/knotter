@@ -152,7 +152,7 @@ Common keys (full list in `docs/KEYBINDINGS.md`):
 - Export touchpoints (ICS): `knotter export ics --out <file>`
 - Export full JSON snapshot: `knotter export json --out <file>` (add `--exclude-archived` to omit archived)
 
-CardDAV and email import are enabled in default builds (v0.2.1+). Telegram sync is opt-in. To slim down a build, use `--no-default-features` and re-enable sync with `--features dav-sync,email-sync,telegram-sync`. See `docs/import-export.md` for mapping details.
+Default builds include all sync features (`dav-sync`, `email-sync`, `telegram-sync`). For a no-sync build from source, use `--no-default-features` and re-enable only what you need with `--features dav-sync,email-sync,telegram-sync`. See `docs/import-export.md` for mapping details.
 
 ## Reminders
 
@@ -173,6 +173,9 @@ knotter reads an optional TOML config file from:
 - Fallback: `~/.config/knotter/config.toml`
 
 Use `--config /path/to/config.toml` to override the location.
+
+For setup-specific snippets (minimal, desktop/email notifications, CardDAV,
+IMAP, Telegram, loops), see `docs/configuration.md`.
 
 Full example (all sections + optional fields):
 
@@ -227,7 +230,8 @@ tag = "gmail"
 [[contacts.sources]]
 name = "macos"
 type = "macos"
-group = "Friends"
+# Optional: import only a named Contacts group (must already exist).
+# group = "Friends"
 tag = "personal"
 
 [[contacts.email_accounts]]
