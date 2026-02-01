@@ -132,9 +132,11 @@ mod imp {
                 }
                 Ok(Event::Text(event)) if in_address_data => {
                     let text = event
-                        .unescape()
+                        .decode()
                         .map_err(|err| SyncError::Parse(err.to_string()))?;
-                    current.push_str(&text);
+                    let text = quick_xml::escape::unescape(text.as_ref())
+                        .map_err(|err| SyncError::Parse(err.to_string()))?;
+                    current.push_str(text.as_ref());
                 }
                 Ok(Event::CData(event)) if in_address_data => {
                     let text = String::from_utf8_lossy(event.as_ref());
