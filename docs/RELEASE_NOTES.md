@@ -1,5 +1,20 @@
 # Release Notes
 
+## v0.4.0 (2026-02-01)
+
+### Telegram Sync (1:1)
+- Added Telegram sync backend (feature-gated) with CLI import/sync wiring.
+- Improved Telegram matching (handle/username), messages-only behavior, and limit safety.
+- Hardened Telegram account naming and username normalization.
+
+### Contact Dates & vCard
+- Added per-contact dates with CLI commands and storage schema updates.
+- vCard import/export now handles labeled birthdays and preserves yearful entries.
+- Fixed BDAY merge selection and added custom label DB constraints.
+
+### Merge & TUI
+- Added a TUI merge picker workflow for resolving merge candidates.
+
 ## v0.3.0 (2026-01-27)
 
 ### Contact Dates
