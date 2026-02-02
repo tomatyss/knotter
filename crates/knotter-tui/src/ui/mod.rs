@@ -14,12 +14,16 @@ use crate::app::{
 
 pub fn draw(frame: &mut Frame<'_>, app: &App) {
     let size = frame.area();
+    let header_lines = 1 + usize::from(app.filter_error.is_some());
+    let footer_lines = 1 + usize::from(app.error.is_some()) + usize::from(app.status.is_some());
+    let header_height = (header_lines + 2) as u16;
+    let footer_height = (footer_lines + 2) as u16;
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
+            Constraint::Length(header_height),
             Constraint::Min(5),
-            Constraint::Length(3),
+            Constraint::Length(footer_height),
         ])
         .split(size);
 
@@ -78,7 +82,7 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
         Mode::List => "j/k move  enter detail  / filter  a add  e edit  n note  t tags  s schedule  x clear  A archive  v archived  m merges  M merge-with  ? help",
         Mode::Detail(_) => "esc back  j/k scroll  e edit  n note  t tags  s schedule  x clear  A archive  m merges  M merge-with  ? help",
         Mode::MergeList => {
-            "j/k move  enter merge  p prefer  d dismiss  A apply-all  r refresh  esc back"
+            "j/k move  enter merge  p prefer  d dismiss  a/A apply-all  r refresh  esc back"
         }
         Mode::FilterEditing => "enter apply  esc cancel",
         Mode::ModalAddContact(_) | Mode::ModalEditContact(_) => {
@@ -96,16 +100,16 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
         Style::default().fg(Color::DarkGray),
     ))];
 
-    if let Some(status) = &app.status {
-        lines.push(Line::from(Span::styled(
-            status.clone(),
-            Style::default().fg(Color::Green),
-        )));
-    }
     if let Some(err) = &app.error {
         lines.push(Line::from(Span::styled(
             err.clone(),
             Style::default().fg(Color::Red),
+        )));
+    }
+    if let Some(status) = &app.status {
+        lines.push(Line::from(Span::styled(
+            status.clone(),
+            Style::default().fg(Color::Green),
         )));
     }
 
@@ -739,7 +743,7 @@ fn render_help(frame: &mut Frame<'_>, area: Rect) {
         Line::from("Filter: enter apply, esc cancel"),
         Line::from("Detail: esc back, j/k scroll, e edit, n note, t tags, s schedule, x clear, A archive, m merges, M merge-with"),
         Line::from(
-            "Merge: j/k move, enter merge, p prefer, d dismiss, A apply-all, r refresh, esc back",
+            "Merge: j/k move, enter merge, p prefer, d dismiss, a/A apply-all, r refresh, esc back",
         ),
         Line::from("Merge picker: tab to list, j/k move, enter merge, ctrl+r refresh, esc back"),
         Line::from("Modals: tab/shift+tab move, enter activate, esc cancel, Ctrl+N set now (contact/schedule)"),

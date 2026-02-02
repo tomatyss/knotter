@@ -207,7 +207,7 @@ Shows open merge candidates created during import/sync.
   Merge selected candidate (confirm required).
 - `p`  
   Toggle which contact is preferred for merge.
-- `A`  
+- `a`/`A`  
   Apply all auto-merge safe candidates (confirm required).
 - `d`  
   Dismiss selected candidate (confirm required).

@@ -499,7 +499,7 @@ impl App {
                     )));
                 }
             }
-            KeyCode::Char('A') => {
+            KeyCode::Char('a') | KeyCode::Char('A') => {
                 let candidate_ids: Vec<_> = self
                     .merge_candidates
                     .iter()
