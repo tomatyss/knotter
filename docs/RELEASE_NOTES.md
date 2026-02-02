@@ -1,5 +1,10 @@
 # Release Notes
 
+## v0.4.4 (2026-02-02)
+
+### Maintenance
+- Release housekeeping: bump crate versions to 0.4.4.
+
 ## v0.4.3 (2026-02-02)
 
 ### Maintenance
