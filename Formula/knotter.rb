@@ -1,8 +1,8 @@
 class Knotter < Formula
   desc "Terminal-first personal CRM and friendship tracker"
   homepage "https://github.com/tomatyss/knotter"
-  url "https://github.com/tomatyss/knotter/archive/refs/tags/v0.4.2.tar.gz"
-  sha256 "967c2d7a9eaf5d74d2749e0575f72c5b9d300b819ae667640232b06e0c2f69aa"
+  url "https://github.com/tomatyss/knotter/archive/refs/tags/v0.4.3.tar.gz"
+  sha256 "db91617fe9c6cc231490fd8521d9defb975df57dc06c14f0337f361f06f64683"
   license "MIT"
 
   depends_on "rust" => :build
