@@ -53,6 +53,7 @@ pub struct App {
 pub struct MergeCandidateView {
     pub id: knotter_core::domain::MergeCandidateId,
     pub reason: String,
+    pub auto_merge_safe: bool,
     pub contact_a_id: ContactId,
     pub contact_b_id: ContactId,
     pub preferred_contact_id: Option<ContactId>,
@@ -497,6 +498,26 @@ impl App {
                         ConfirmAction::DismissMerge(candidate.id),
                     )));
                 }
+            }
+            KeyCode::Char('A') => {
+                let candidate_ids: Vec<_> = self
+                    .merge_candidates
+                    .iter()
+                    .filter(|candidate| candidate.auto_merge_safe)
+                    .map(|candidate| candidate.id)
+                    .collect();
+                if candidate_ids.is_empty() {
+                    self.set_error("no auto-merge safe candidates");
+                    return None;
+                }
+                let message = format!(
+                    "Apply {} auto-merge safe candidates? (y/n)",
+                    candidate_ids.len()
+                );
+                return Some(Mode::Confirm(ConfirmState::new(
+                    message,
+                    ConfirmAction::ApplyAllMerges(candidate_ids),
+                )));
             }
             KeyCode::Enter => {
                 if let Some(candidate) = self.merge_candidates.get(self.merge_selected) {
@@ -1506,6 +1527,7 @@ pub enum ConfirmAction {
         secondary_id: ContactId,
     },
     DismissMerge(knotter_core::domain::MergeCandidateId),
+    ApplyAllMerges(Vec<knotter_core::domain::MergeCandidateId>),
 }
 
 #[derive(Debug, Clone)]
@@ -1533,27 +1555,30 @@ impl ConfirmState {
     }
 
     pub fn to_action(&self) -> Option<Action> {
-        match self.action {
-            ConfirmAction::ClearSchedule(id) => Some(Action::ClearSchedule(id)),
-            ConfirmAction::ArchiveContact(id) => Some(Action::ArchiveContact(id)),
-            ConfirmAction::UnarchiveContact(id) => Some(Action::UnarchiveContact(id)),
+        match &self.action {
+            ConfirmAction::ClearSchedule(id) => Some(Action::ClearSchedule(*id)),
+            ConfirmAction::ArchiveContact(id) => Some(Action::ArchiveContact(*id)),
+            ConfirmAction::UnarchiveContact(id) => Some(Action::UnarchiveContact(*id)),
             ConfirmAction::ApplyMerge {
                 primary_id,
                 secondary_id,
             } => Some(Action::ApplyMerge {
-                primary_id,
-                secondary_id,
+                primary_id: *primary_id,
+                secondary_id: *secondary_id,
             }),
-            ConfirmAction::DismissMerge(id) => Some(Action::DismissMerge(id)),
+            ConfirmAction::DismissMerge(id) => Some(Action::DismissMerge(*id)),
+            ConfirmAction::ApplyAllMerges(candidate_ids) => Some(Action::ApplyAllMerges {
+                candidate_ids: candidate_ids.clone(),
+            }),
         }
     }
 }
 
 fn default_confirm_return_mode(action: &ConfirmAction) -> ConfirmReturn {
     match action {
-        ConfirmAction::ApplyMerge { .. } | ConfirmAction::DismissMerge(_) => {
-            ConfirmReturn::MergeList
-        }
+        ConfirmAction::ApplyMerge { .. }
+        | ConfirmAction::DismissMerge(_)
+        | ConfirmAction::ApplyAllMerges(_) => ConfirmReturn::MergeList,
         _ => ConfirmReturn::List,
     }
 }

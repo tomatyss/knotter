@@ -7,7 +7,8 @@ use knotter_config::{
     ContactSourceKind, EmailAccountTls, EmailMergePolicy, MacosSourceConfig, TelegramMergePolicy,
 };
 use knotter_core::domain::{
-    normalize_email, normalize_phone_for_match, Contact, ContactId, InteractionKind, TagName,
+    normalize_email, normalize_phone_for_match, Contact, ContactId, InteractionKind,
+    MergeCandidateReason, TagName,
 };
 use knotter_core::dto::{
     ContactDateDto, ExportContactDto, ExportInteractionDto, ExportMetadataDto, ExportSnapshotDto,
@@ -1534,7 +1535,9 @@ fn stage_email_merge_candidates(
             created.id,
             existing.id,
             knotter_store::repo::MergeCandidateCreate {
-                reason: "email-name-ambiguous".to_string(),
+                reason: MergeCandidateReason::EmailNameAmbiguous
+                    .as_str()
+                    .to_string(),
                 source: Some(email_ctx.account_name.to_string()),
                 preferred_contact_id: Some(existing.id),
             },
@@ -1715,7 +1718,7 @@ fn resolve_telegram_contact(
                     phone,
                     display_name.clone(),
                     active_matches,
-                    "telegram-username-ambiguous",
+                    MergeCandidateReason::TelegramUsernameAmbiguous.as_str(),
                     "username",
                 );
             }
@@ -1779,7 +1782,7 @@ fn resolve_telegram_contact(
                     phone,
                     display_name.clone(),
                     active_matches,
-                    "telegram-handle-ambiguous",
+                    MergeCandidateReason::TelegramHandleAmbiguous.as_str(),
                     "handle",
                 );
             }
@@ -1841,7 +1844,7 @@ fn resolve_telegram_contact(
                 phone,
                 display_name,
                 active_matches,
-                "telegram-name-ambiguous",
+                MergeCandidateReason::TelegramNameAmbiguous.as_str(),
                 "name",
             );
         }
@@ -2391,7 +2394,7 @@ fn apply_vcf_contact(
             contact,
             matched_contacts,
             mode,
-            "vcf-ambiguous-email",
+            MergeCandidateReason::VcfAmbiguousEmail.as_str(),
         );
     }
 
@@ -2418,7 +2421,7 @@ fn apply_vcf_contact(
                     now_utc,
                     matches.matched_contacts,
                     mode,
-                    "vcf-ambiguous-phone-name",
+                    MergeCandidateReason::VcfAmbiguousPhoneName.as_str(),
                     "phone + name match multiple contacts",
                 );
             }
@@ -2874,7 +2877,7 @@ fn handle_duplicate_email_match(
             contact_id,
             found_owner_id,
             knotter_store::repo::MergeCandidateCreate {
-                reason: "email-duplicate".to_string(),
+                reason: MergeCandidateReason::EmailDuplicate.as_str().to_string(),
                 source: Some(email_ctx.account_name.to_string()),
                 preferred_contact_id: Some(found_owner_id),
             },
@@ -3732,7 +3735,9 @@ mod tests {
                 archived.id,
                 other.id,
                 knotter_store::repo::MergeCandidateCreate {
-                    reason: "email-name-ambiguous".to_string(),
+                    reason: MergeCandidateReason::EmailNameAmbiguous
+                        .as_str()
+                        .to_string(),
                     source: Some("test".to_string()),
                     preferred_contact_id: Some(other.id),
                 },

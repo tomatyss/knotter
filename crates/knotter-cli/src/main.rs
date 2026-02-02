@@ -155,6 +155,7 @@ fn run(cli: Cli) -> Result<()> {
                     merge::MergeCommand::List(args) => merge::list_merges(&ctx, args),
                     merge::MergeCommand::Show(args) => merge::show_merge(&ctx, args),
                     merge::MergeCommand::Apply(args) => merge::apply_merge(&ctx, args),
+                    merge::MergeCommand::ApplyAll(args) => merge::apply_all_merges(&ctx, args),
                     merge::MergeCommand::Dismiss(args) => merge::dismiss_merge(&ctx, args),
                     merge::MergeCommand::Contacts(args) => merge::merge_contacts(&ctx, args),
                 },

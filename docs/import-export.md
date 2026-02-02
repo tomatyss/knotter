@@ -40,6 +40,7 @@ Optional flags:
 - If the only match is archived, the import skips the entry and emits a warning.
 - Imported tags are merged with existing tags when updating.
 Resolve merge candidates via `knotter merge` or the TUI merge list.
+Duplicate-email candidates are marked auto-merge safe and can be bulk-applied via `knotter merge apply-all`.
 
 ### Warnings
 

@@ -77,7 +77,9 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let hint = match app.mode {
         Mode::List => "j/k move  enter detail  / filter  a add  e edit  n note  t tags  s schedule  x clear  A archive  v archived  m merges  M merge-with  ? help",
         Mode::Detail(_) => "esc back  j/k scroll  e edit  n note  t tags  s schedule  x clear  A archive  m merges  M merge-with  ? help",
-        Mode::MergeList => "j/k move  enter merge  p prefer  d dismiss  r refresh  esc back",
+        Mode::MergeList => {
+            "j/k move  enter merge  p prefer  d dismiss  A apply-all  r refresh  esc back"
+        }
         Mode::FilterEditing => "enter apply  esc cancel",
         Mode::ModalAddContact(_) | Mode::ModalEditContact(_) => {
             "tab next  shift+tab prev  enter select  ctrl+n set now  esc cancel"
@@ -214,7 +216,7 @@ fn render_merge_list(frame: &mut Frame<'_>, area: Rect, app: &App) {
                     }
                 })
                 .unwrap_or("?");
-            let line = Line::from(vec![
+            let mut spans = vec![
                 Span::styled(
                     format!(
                         "{} <-> {}",
@@ -227,12 +229,20 @@ fn render_merge_list(frame: &mut Frame<'_>, area: Rect, app: &App) {
                     candidate.reason.clone(),
                     Style::default().fg(Color::DarkGray),
                 ),
-                Span::raw("  "),
-                Span::styled(
-                    format!("preferred: {}", preferred),
-                    Style::default().fg(Color::DarkGray),
-                ),
-            ]);
+            ];
+            if candidate.auto_merge_safe {
+                spans.push(Span::raw("  "));
+                spans.push(Span::styled(
+                    "auto-merge safe",
+                    Style::default().fg(Color::Green),
+                ));
+            }
+            spans.push(Span::raw("  "));
+            spans.push(Span::styled(
+                format!("preferred: {}", preferred),
+                Style::default().fg(Color::DarkGray),
+            ));
+            let line = Line::from(spans);
             ListItem::new(line)
         })
         .collect();
@@ -728,7 +738,9 @@ fn render_help(frame: &mut Frame<'_>, area: Rect) {
         Line::from("List: j/k move, enter detail, / filter, a add, e edit, n note, t tags, s schedule, x clear, A archive, v archived, m merges, M merge-with"),
         Line::from("Filter: enter apply, esc cancel"),
         Line::from("Detail: esc back, j/k scroll, e edit, n note, t tags, s schedule, x clear, A archive, m merges, M merge-with"),
-        Line::from("Merge: j/k move, enter merge, p prefer, d dismiss, r refresh, esc back"),
+        Line::from(
+            "Merge: j/k move, enter merge, p prefer, d dismiss, A apply-all, r refresh, esc back",
+        ),
         Line::from("Merge picker: tab to list, j/k move, enter merge, ctrl+r refresh, esc back"),
         Line::from("Modals: tab/shift+tab move, enter activate, esc cancel, Ctrl+N set now (contact/schedule)"),
         Line::from(""),

@@ -1,5 +1,5 @@
 use crate::error::{Result, StoreError};
-use knotter_core::domain::{ContactId, MergeCandidateId};
+use knotter_core::domain::{ContactId, MergeCandidateId, MergeCandidateReason};
 use rusqlite::{params, Connection, ErrorCode};
 use std::str::FromStr;
 
@@ -46,6 +46,19 @@ pub struct MergeCandidate {
     pub contact_b_id: ContactId,
     pub preferred_contact_id: Option<ContactId>,
     pub resolved_at: Option<i64>,
+}
+
+impl MergeCandidate {
+    pub fn reason_kind(&self) -> Option<MergeCandidateReason> {
+        MergeCandidateReason::parse(&self.reason)
+    }
+
+    pub fn auto_merge_safe(&self) -> bool {
+        self.reason_kind()
+            .map(|reason| reason.is_auto_merge_safe())
+            .unwrap_or(false)
+            && self.preferred_contact_id.is_some()
+    }
 }
 
 #[derive(Debug, Clone)]
