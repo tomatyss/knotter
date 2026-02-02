@@ -451,11 +451,12 @@ knotter-sync contains adapters that map between external formats and core types.
   * EMAIL (all) -> contact_emails (first becomes primary)
   * first TEL -> phone
   * CATEGORIES -> tags (normalized)
-* Deduplication (choose + document one):
+* Deduplication:
 
-  * Option A (simplest): always create new contacts
-  * Option B (better MVP): if email matches an existing contact, update that contact
-  * Option C: interactive merge via merge candidates (implemented)
+  * If email matches an existing contact, update that contact.
+  * When phone+name matching is enabled, normalize the phone and match by display name + phone.
+  * Ambiguous matches create merge candidates for manual resolution.
+  * Archived-only matches are skipped with a warning.
 
 Manual merge candidates are created when imports/sync encounter ambiguous matches
 (e.g., multiple name matches or duplicate emails). Candidates are resolved via
@@ -475,7 +476,7 @@ Import should return a report:
 Additional sources should convert their data into vCard payloads and reuse the
 existing vCard import pipeline. This keeps dedupe logic and mapping consistent.
 
-* macOS Contacts: fetch vCards via the Contacts app (AppleScript / Contacts framework).
+* macOS Contacts: fetch vCards via the Contacts app (AppleScript / Contacts framework); import enables phone+name matching by default to reduce duplicates when emails are missing.
 * CardDAV providers (Gmail, iCloud, etc.): fetch addressbook vCards via CardDAV REPORT.
 
 #### Export strategy (MVP)
