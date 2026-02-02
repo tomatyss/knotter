@@ -1667,7 +1667,7 @@ dependencies = [
 
 [[package]]
 name = "knotter-cli"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -1690,7 +1690,7 @@ dependencies = [
 
 [[package]]
 name = "knotter-config"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "dirs",
  "knotter-core",
@@ -1703,7 +1703,7 @@ dependencies = [
 
 [[package]]
 name = "knotter-core"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "chrono",
  "serde",
@@ -1713,7 +1713,7 @@ dependencies = [
 
 [[package]]
 name = "knotter-store"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "chrono",
  "dirs",
@@ -1725,7 +1725,7 @@ dependencies = [
 
 [[package]]
 name = "knotter-sync"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "chrono",
  "grammers-client",
@@ -1743,7 +1743,7 @@ dependencies = [
 
 [[package]]
 name = "knotter-tui"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "anyhow",
  "chrono",
