@@ -273,6 +273,7 @@ mod imp {
                     }
                 }
 
+                ensure_session_file(self.session_path.as_path())?;
                 if let Err(err) = self.client.session().save_to_file(&self.session_path) {
                     return Err(SyncError::Io(err));
                 }
@@ -295,6 +296,34 @@ mod imp {
                 fs::create_dir_all(parent).map_err(SyncError::Io)?;
             }
         }
+        Ok(())
+    }
+
+    fn ensure_session_file(path: &std::path::Path) -> Result<()> {
+        if path.exists() {
+            return Ok(());
+        }
+        ensure_parent_dir(path)?;
+        fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)
+            .map_err(SyncError::Io)?;
+        restrict_file_permissions(path)?;
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn restrict_file_permissions(path: &std::path::Path) -> Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = fs::Permissions::from_mode(0o600);
+        fs::set_permissions(path, perms).map_err(SyncError::Io)?;
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    fn restrict_file_permissions(_path: &std::path::Path) -> Result<()> {
         Ok(())
     }
 

@@ -17,6 +17,7 @@ Optional flags:
 --dry-run          # parse + dedupe, but do not write to the DB
 --limit <N>        # only process the first N contacts
 --tag <tag>        # add an extra tag to all imported contacts (repeatable)
+--match-phone-name # match existing contacts by display name + phone when no email match is found
 ```
 
 ### Mapping rules
@@ -31,8 +32,10 @@ Optional flags:
 ### Dedupe policy
 
 - If `EMAIL` is present and matches exactly one active contact (case-insensitive), update that contact.
-- If `EMAIL` is missing, always create a new contact.
+- If `EMAIL` is missing, create a new contact unless `--match-phone-name` finds a display-name + phone match.
+- When `--match-phone-name` is set, knotter normalizes phone numbers (digits-only, leading `+` preserved) and matches by display name + phone.
 - If multiple contacts share the same email, knotter stages an archived contact and creates merge candidates.
+- If multiple contacts match by display name + phone, knotter creates merge candidates between existing contacts.
 - Staged contacts only include emails that are not already assigned to other contacts (to satisfy uniqueness).
 - If the only match is archived, the import skips the entry and emits a warning.
 - Imported tags are merged with existing tags when updating.
@@ -66,7 +69,7 @@ Notes:
 
 - The first run will prompt for Contacts access on macOS.
 - If `--group` is set, the group must already exist in Contacts; omit it to import all contacts.
-- The import uses the same vCard mapping rules and dedupe policy as `import vcf`.
+- The import uses the same vCard mapping rules and dedupe policy as `import vcf`, with phone+name matching enabled by default.
 
 ## CardDAV import (Gmail, iCloud, and other providers)
 
