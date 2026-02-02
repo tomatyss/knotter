@@ -2383,7 +2383,7 @@ fn apply_vcf_contact(
     let email_archived_only =
         active_matches.is_empty() && archived_found && !contact.emails.is_empty();
 
-    if duplicate_email_matches || active_matches.len() > 1 {
+    if (duplicate_email_matches || active_matches.len() > 1) && !email_archived_only {
         return stage_merge_candidate(
             ctx,
             source_name,
@@ -3262,6 +3262,125 @@ mod tests {
             .list(None)
             .expect("list candidates");
         assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn vcf_import_skips_archived_only_duplicate_email_matches() {
+        let store = Store::open_in_memory().expect("open store");
+        store.migrate().expect("migrate");
+        let now = 1_700_000_000;
+
+        let conn = store.connection();
+        conn.execute_batch(
+            "PRAGMA foreign_keys = OFF;
+             CREATE TABLE contact_emails_new (
+               contact_id TEXT NOT NULL,
+               email TEXT NOT NULL,
+               is_primary INTEGER NOT NULL DEFAULT 0,
+               created_at INTEGER NOT NULL,
+               source TEXT,
+               PRIMARY KEY (contact_id, email),
+               FOREIGN KEY(contact_id) REFERENCES contacts(id) ON DELETE CASCADE
+             );
+             INSERT INTO contact_emails_new
+               SELECT contact_id, email, is_primary, created_at, source
+               FROM contact_emails;
+             DROP TABLE contact_emails;
+             ALTER TABLE contact_emails_new RENAME TO contact_emails;
+             CREATE INDEX IF NOT EXISTS idx_contact_emails_contact_id
+               ON contact_emails(contact_id);
+             CREATE INDEX IF NOT EXISTS idx_contact_emails_email
+               ON contact_emails(email);
+             PRAGMA foreign_keys = ON;",
+        )
+        .expect("rebuild contact_emails without unique");
+
+        let archived_one = store
+            .contacts()
+            .create(
+                now,
+                ContactNew {
+                    display_name: "Archived One".to_string(),
+                    email: None,
+                    phone: None,
+                    handle: None,
+                    timezone: None,
+                    next_touchpoint_at: None,
+                    cadence_days: None,
+                    archived_at: Some(now),
+                },
+            )
+            .expect("create archived one");
+        let archived_two = store
+            .contacts()
+            .create(
+                now,
+                ContactNew {
+                    display_name: "Archived Two".to_string(),
+                    email: None,
+                    phone: None,
+                    handle: None,
+                    timezone: None,
+                    next_touchpoint_at: None,
+                    cadence_days: None,
+                    archived_at: Some(now),
+                },
+            )
+            .expect("create archived two");
+
+        conn.execute_batch(&format!(
+            "INSERT INTO contact_emails (contact_id, email, is_primary, created_at, source)
+             VALUES ('{}', 'archived@example.com', 1, {}, 'legacy');",
+            archived_one.id, now
+        ))
+        .expect("insert archived one email");
+        conn.execute_batch(&format!(
+            "INSERT INTO contact_emails (contact_id, email, is_primary, created_at, source)
+             VALUES ('{}', 'archived@example.com', 1, {}, 'legacy');",
+            archived_two.id, now
+        ))
+        .expect("insert archived two email");
+
+        let config = AppConfig::default();
+        let ctx = Context {
+            store: &store,
+            json: false,
+            config: &config,
+        };
+        let options = ImportOptions {
+            dry_run: false,
+            limit: None,
+            retry_skipped: false,
+            extra_tags: Vec::new(),
+            match_phone_name: false,
+        };
+        let contact = vcf::VcfContact {
+            display_name: "Incoming".to_string(),
+            emails: vec!["archived@example.com".to_string()],
+            phone: None,
+            tags: Vec::new(),
+            next_touchpoint_at: None,
+            cadence_days: None,
+            dates: Vec::new(),
+        };
+
+        let outcome =
+            apply_vcf_contact(&ctx, "test", now + 10, contact, ImportMode::Apply, &options)
+                .expect("apply vcf");
+        match outcome {
+            ImportOutcome::Skipped(message) => {
+                assert!(message.contains("archived"));
+            }
+            _ => panic!("expected archived-only skip"),
+        }
+
+        let candidates = store
+            .merge_candidates()
+            .list(None)
+            .expect("list candidates");
+        assert!(candidates.is_empty());
+        let contacts = store.contacts().list_all().expect("list contacts");
+        assert_eq!(contacts.len(), 2);
     }
 
     #[test]
