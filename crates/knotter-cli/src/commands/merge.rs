@@ -1,8 +1,8 @@
 use crate::commands::{print_json, Context};
 use crate::error::{invalid_input, not_found};
 use anyhow::Result;
-use clap::{Args, Subcommand, ValueEnum};
-use knotter_core::domain::{Contact, ContactId, MergeCandidateId};
+use clap::{ArgAction, Args, Subcommand, ValueEnum};
+use knotter_core::domain::{Contact, ContactId, MergeCandidateId, MergeCandidateReason};
 use knotter_store::repo::{
     ContactMergeOptions, MergeArchivedPreference, MergeCandidate, MergeCandidateStatus,
     MergePreference, MergeTouchpointPreference,
@@ -15,6 +15,7 @@ pub enum MergeCommand {
     List(MergeListArgs),
     Show(MergeShowArgs),
     Apply(MergeApplyArgs),
+    ApplyAll(MergeApplyAllArgs),
     Dismiss(MergeDismissArgs),
     Contacts(MergeContactsArgs),
 }
@@ -39,6 +40,28 @@ pub struct MergeApplyArgs {
     pub touchpoint: Option<MergeTouchpointArg>,
     #[arg(long, value_enum)]
     pub archived: Option<MergeArchivedArg>,
+}
+
+#[derive(Debug, Args)]
+pub struct MergeApplyAllArgs {
+    #[arg(long, value_enum)]
+    pub prefer: Option<MergePreferArg>,
+    #[arg(long, value_enum)]
+    pub touchpoint: Option<MergeTouchpointArg>,
+    #[arg(long, value_enum)]
+    pub archived: Option<MergeArchivedArg>,
+    #[arg(long, value_enum, action = ArgAction::Append)]
+    pub reason: Vec<MergeReasonArg>,
+    #[arg(long)]
+    pub source: Option<String>,
+    #[arg(long, help = "Include candidates that are not marked auto-merge safe")]
+    pub include_unsafe: bool,
+    #[arg(long)]
+    pub limit: Option<usize>,
+    #[arg(long)]
+    pub dry_run: bool,
+    #[arg(long, help = "Skip confirmation for bulk apply")]
+    pub yes: bool,
 }
 
 #[derive(Debug, Args)]
@@ -88,12 +111,24 @@ pub enum MergeArchivedArg {
     Secondary,
 }
 
+#[derive(Debug, Clone, ValueEnum)]
+pub enum MergeReasonArg {
+    EmailDuplicate,
+    EmailNameAmbiguous,
+    VcfAmbiguousEmail,
+    VcfAmbiguousPhoneName,
+    TelegramUsernameAmbiguous,
+    TelegramHandleAmbiguous,
+    TelegramNameAmbiguous,
+}
+
 #[derive(Debug, Serialize)]
 struct MergeCandidateDto {
     id: String,
     created_at: i64,
     status: String,
     reason: String,
+    auto_merge_safe: bool,
     source: Option<String>,
     preferred_contact_id: Option<String>,
     resolved_at: Option<i64>,
@@ -108,6 +143,29 @@ struct ContactSummaryDto {
     email: Option<String>,
     archived_at: Option<i64>,
     updated_at: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct MergeApplyAllReport {
+    considered: usize,
+    selected: usize,
+    applied: usize,
+    skipped: usize,
+    failed: usize,
+    dry_run: bool,
+    results: Vec<MergeApplyAllResult>,
+}
+
+#[derive(Debug, Serialize)]
+struct MergeApplyAllResult {
+    id: String,
+    status: String,
+    reason: String,
+    source: Option<String>,
+    primary_id: Option<String>,
+    secondary_id: Option<String>,
+    merged_contact_id: Option<String>,
+    error: Option<String>,
 }
 
 pub fn list_merges(ctx: &Context<'_>, args: MergeListArgs) -> Result<()> {
@@ -158,9 +216,10 @@ pub fn show_merge(ctx: &Context<'_>, args: MergeShowArgs) -> Result<()> {
 
 pub fn apply_merge(ctx: &Context<'_>, args: MergeApplyArgs) -> Result<()> {
     let id = parse_merge_candidate_id(&args.id)?;
-    let candidate = ctx
-        .store
-        .merge_candidates()
+    let options = build_merge_options_for_apply(args.touchpoint, args.archived)?;
+    let now = crate::util::now_utc();
+    let tx = ctx.store.connection().unchecked_transaction()?;
+    let candidate = knotter_store::repo::MergeCandidatesRepo::new(&tx)
         .get(id)?
         .ok_or_else(|| not_found("merge candidate not found"))?;
 
@@ -169,9 +228,6 @@ pub fn apply_merge(ctx: &Context<'_>, args: MergeApplyArgs) -> Result<()> {
     }
 
     let (primary_id, secondary_id) = select_primary_secondary(&candidate, args.prefer)?;
-    let options = build_merge_options_for_apply(args.touchpoint, args.archived)?;
-    let now = crate::util::now_utc();
-    let tx = ctx.store.connection().unchecked_transaction()?;
     let merged = knotter_store::repo::ContactsRepo::new(&tx).merge_contacts(
         now,
         primary_id,
@@ -184,6 +240,246 @@ pub fn apply_merge(ctx: &Context<'_>, args: MergeApplyArgs) -> Result<()> {
         return print_json(&merged);
     }
     println!("Merged {} into {}", secondary_id, primary_id);
+    Ok(())
+}
+
+pub fn apply_all_merges(ctx: &Context<'_>, args: MergeApplyAllArgs) -> Result<()> {
+    let mut candidates = ctx.store.merge_candidates().list_open()?;
+    let considered = candidates.len();
+    let reason_filter = if args.reason.is_empty() {
+        None
+    } else {
+        let values: std::collections::HashSet<MergeCandidateReason> =
+            args.reason.iter().map(|arg| arg.as_reason()).collect();
+        Some(values)
+    };
+
+    candidates.retain(|candidate| {
+        if let Some(reasons) = &reason_filter {
+            if let Some(kind) = candidate.reason_kind() {
+                if !reasons.contains(&kind) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        if let Some(source) = args.source.as_deref() {
+            if candidate.source.as_deref() != Some(source) {
+                return false;
+            }
+        }
+        if !args.include_unsafe && !candidate.auto_merge_safe() {
+            return false;
+        }
+        true
+    });
+
+    if let Some(limit) = args.limit {
+        candidates.truncate(limit);
+    }
+
+    let selected = candidates.len();
+    if selected == 0 {
+        let report = MergeApplyAllReport {
+            considered,
+            selected,
+            applied: 0,
+            skipped: 0,
+            failed: 0,
+            dry_run: args.dry_run,
+            results: Vec::new(),
+        };
+        if ctx.json {
+            return print_json(&report);
+        }
+        println!("No merge candidates matched the filters.");
+        return Ok(());
+    }
+
+    if !args.dry_run && !args.yes {
+        return Err(invalid_input(
+            "merge apply-all requires --yes unless --dry-run is set",
+        ));
+    }
+
+    let options = build_merge_options_for_apply(args.touchpoint, args.archived)?;
+    let mut report = MergeApplyAllReport {
+        considered,
+        selected,
+        applied: 0,
+        skipped: 0,
+        failed: 0,
+        dry_run: args.dry_run,
+        results: Vec::new(),
+    };
+
+    if args.dry_run {
+        for candidate in candidates {
+            match select_primary_secondary(&candidate, args.prefer.clone()) {
+                Ok((primary_id, secondary_id)) => {
+                    report.results.push(MergeApplyAllResult {
+                        id: candidate.id.to_string(),
+                        status: "dry-run".to_string(),
+                        reason: candidate.reason,
+                        source: candidate.source,
+                        primary_id: Some(primary_id.to_string()),
+                        secondary_id: Some(secondary_id.to_string()),
+                        merged_contact_id: None,
+                        error: None,
+                    });
+                }
+                Err(err) => {
+                    report.failed += 1;
+                    report.results.push(MergeApplyAllResult {
+                        id: candidate.id.to_string(),
+                        status: "failed".to_string(),
+                        reason: candidate.reason,
+                        source: candidate.source,
+                        primary_id: None,
+                        secondary_id: None,
+                        merged_contact_id: None,
+                        error: Some(err.to_string()),
+                    });
+                }
+            }
+        }
+
+        if ctx.json {
+            return print_json(&report);
+        }
+        println!(
+            "Dry-run: {} candidate(s) selected ({} considered).",
+            report.selected, report.considered
+        );
+        for result in &report.results {
+            let primary = result.primary_id.as_deref().unwrap_or("?");
+            let secondary = result.secondary_id.as_deref().unwrap_or("?");
+            println!("{}  {} -> {}", result.id, secondary, primary);
+        }
+        return Ok(());
+    }
+
+    let now = crate::util::now_utc();
+    for candidate in candidates {
+        let tx = ctx.store.connection().unchecked_transaction()?;
+        let current = knotter_store::repo::MergeCandidatesRepo::new(&tx).get(candidate.id)?;
+        let Some(current) = current else {
+            report.skipped += 1;
+            report.results.push(MergeApplyAllResult {
+                id: candidate.id.to_string(),
+                status: "skipped".to_string(),
+                reason: candidate.reason,
+                source: candidate.source,
+                primary_id: None,
+                secondary_id: None,
+                merged_contact_id: None,
+                error: Some("merge candidate not found".to_string()),
+            });
+            continue;
+        };
+
+        if current.status != MergeCandidateStatus::Open {
+            report.skipped += 1;
+            report.results.push(MergeApplyAllResult {
+                id: current.id.to_string(),
+                status: "skipped".to_string(),
+                reason: current.reason,
+                source: current.source,
+                primary_id: None,
+                secondary_id: None,
+                merged_contact_id: None,
+                error: Some("merge candidate is not open".to_string()),
+            });
+            continue;
+        }
+
+        if !args.include_unsafe && !current.auto_merge_safe() {
+            report.skipped += 1;
+            report.results.push(MergeApplyAllResult {
+                id: current.id.to_string(),
+                status: "skipped".to_string(),
+                reason: current.reason,
+                source: current.source,
+                primary_id: None,
+                secondary_id: None,
+                merged_contact_id: None,
+                error: Some("merge candidate is not auto-merge safe".to_string()),
+            });
+            continue;
+        }
+
+        let (primary_id, secondary_id) =
+            match select_primary_secondary(&current, args.prefer.clone()) {
+                Ok(value) => value,
+                Err(err) => {
+                    report.failed += 1;
+                    report.results.push(MergeApplyAllResult {
+                        id: current.id.to_string(),
+                        status: "failed".to_string(),
+                        reason: current.reason,
+                        source: current.source,
+                        primary_id: None,
+                        secondary_id: None,
+                        merged_contact_id: None,
+                        error: Some(err.to_string()),
+                    });
+                    continue;
+                }
+            };
+
+        let merged = knotter_store::repo::ContactsRepo::new(&tx).merge_contacts(
+            now,
+            primary_id,
+            secondary_id,
+            options.clone(),
+        );
+        match merged {
+            Ok(merged) => {
+                tx.commit()?;
+                report.applied += 1;
+                report.results.push(MergeApplyAllResult {
+                    id: current.id.to_string(),
+                    status: "merged".to_string(),
+                    reason: current.reason,
+                    source: current.source,
+                    primary_id: Some(primary_id.to_string()),
+                    secondary_id: Some(secondary_id.to_string()),
+                    merged_contact_id: Some(merged.id.to_string()),
+                    error: None,
+                });
+            }
+            Err(err) => {
+                report.failed += 1;
+                report.results.push(MergeApplyAllResult {
+                    id: current.id.to_string(),
+                    status: "failed".to_string(),
+                    reason: current.reason,
+                    source: current.source,
+                    primary_id: Some(primary_id.to_string()),
+                    secondary_id: Some(secondary_id.to_string()),
+                    merged_contact_id: None,
+                    error: Some(err.to_string()),
+                });
+            }
+        }
+    }
+
+    if ctx.json {
+        return print_json(&report);
+    }
+    println!(
+        "Applied {} merge(s); skipped {}; failed {}.",
+        report.applied, report.skipped, report.failed
+    );
+    for result in &report.results {
+        let primary = result.primary_id.as_deref().unwrap_or("?");
+        let secondary = result.secondary_id.as_deref().unwrap_or("?");
+        println!(
+            "{}  {}  {} -> {}",
+            result.id, result.status, secondary, primary
+        );
+    }
     Ok(())
 }
 
@@ -259,11 +555,13 @@ fn candidate_to_dto_with_summaries(
     contact_a: ContactSummaryDto,
     contact_b: ContactSummaryDto,
 ) -> MergeCandidateDto {
+    let auto_merge_safe = candidate.auto_merge_safe();
     MergeCandidateDto {
         id: candidate.id.to_string(),
         created_at: candidate.created_at,
         status: candidate.status.as_str().to_string(),
         reason: candidate.reason,
+        auto_merge_safe,
         source: candidate.source,
         preferred_contact_id: candidate.preferred_contact_id.map(|id| id.to_string()),
         resolved_at: candidate.resolved_at,
@@ -391,6 +689,24 @@ fn parse_merge_candidate_id(value: &str) -> Result<MergeCandidateId> {
     MergeCandidateId::from_str(value).map_err(|_| invalid_input("invalid merge candidate id"))
 }
 
+impl MergeReasonArg {
+    fn as_reason(&self) -> MergeCandidateReason {
+        match self {
+            MergeReasonArg::EmailDuplicate => MergeCandidateReason::EmailDuplicate,
+            MergeReasonArg::EmailNameAmbiguous => MergeCandidateReason::EmailNameAmbiguous,
+            MergeReasonArg::VcfAmbiguousEmail => MergeCandidateReason::VcfAmbiguousEmail,
+            MergeReasonArg::VcfAmbiguousPhoneName => MergeCandidateReason::VcfAmbiguousPhoneName,
+            MergeReasonArg::TelegramUsernameAmbiguous => {
+                MergeCandidateReason::TelegramUsernameAmbiguous
+            }
+            MergeReasonArg::TelegramHandleAmbiguous => {
+                MergeCandidateReason::TelegramHandleAmbiguous
+            }
+            MergeReasonArg::TelegramNameAmbiguous => MergeCandidateReason::TelegramNameAmbiguous,
+        }
+    }
+}
+
 fn parse_contact_id(value: &str) -> Result<ContactId> {
     ContactId::from_str(value).map_err(|_| invalid_input("invalid contact id"))
 }
@@ -399,6 +715,7 @@ fn print_candidate_human(dto: &MergeCandidateDto) {
     println!("id: {}", dto.id);
     println!("status: {}", dto.status);
     println!("reason: {}", dto.reason);
+    println!("auto_merge_safe: {}", dto.auto_merge_safe);
     if let Some(source) = &dto.source {
         println!("source: {}", source);
     }

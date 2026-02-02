@@ -32,6 +32,9 @@ pub enum Action {
         primary_id: ContactId,
         secondary_id: ContactId,
     },
+    ApplyAllMerges {
+        candidate_ids: Vec<knotter_core::domain::MergeCandidateId>,
+    },
     SetMergePreferred {
         candidate_id: knotter_core::domain::MergeCandidateId,
         preferred_contact_id: ContactId,
@@ -78,6 +81,7 @@ pub fn execute_action(app: &mut App, store: &Store, action: Action) -> Result<()
             let candidates = store.merge_candidates().list_open()?;
             let mut items = Vec::new();
             for candidate in candidates {
+                let auto_merge_safe = candidate.auto_merge_safe();
                 let contact_a_name = store
                     .contacts()
                     .get(candidate.contact_a_id)?
@@ -91,6 +95,7 @@ pub fn execute_action(app: &mut App, store: &Store, action: Action) -> Result<()
                 items.push(crate::app::MergeCandidateView {
                     id: candidate.id,
                     reason: candidate.reason,
+                    auto_merge_safe,
                     contact_a_id: candidate.contact_a_id,
                     contact_b_id: candidate.contact_b_id,
                     preferred_contact_id: candidate.preferred_contact_id,
@@ -275,6 +280,61 @@ pub fn execute_action(app: &mut App, store: &Store, action: Action) -> Result<()
             }
             app.enqueue(Action::LoadList);
             app.enqueue(Action::LoadDetail(merged.id));
+        }
+        Action::ApplyAllMerges { candidate_ids } => {
+            let now = now_utc();
+            let mut applied = 0;
+            let mut skipped = 0;
+            let mut failed = 0;
+            let mut last_merged = None;
+            for candidate_id in candidate_ids {
+                let tx = store.connection().unchecked_transaction()?;
+                let candidate = store.merge_candidates().get(candidate_id)?;
+                let Some(candidate) = candidate else {
+                    skipped += 1;
+                    continue;
+                };
+                if candidate.status != knotter_store::repo::MergeCandidateStatus::Open {
+                    skipped += 1;
+                    continue;
+                }
+                let primary_id = candidate
+                    .preferred_contact_id
+                    .unwrap_or(candidate.contact_a_id);
+                let secondary_id = if primary_id == candidate.contact_a_id {
+                    candidate.contact_b_id
+                } else {
+                    candidate.contact_a_id
+                };
+                let merged = knotter_store::repo::ContactsRepo::new(&tx).merge_contacts(
+                    now,
+                    primary_id,
+                    secondary_id,
+                    knotter_store::repo::ContactMergeOptions::default(),
+                );
+                match merged {
+                    Ok(merged) => {
+                        tx.commit()?;
+                        applied += 1;
+                        last_merged = Some(merged.id);
+                    }
+                    Err(_) => {
+                        failed += 1;
+                    }
+                }
+            }
+            app.set_status(format!(
+                "Applied {} merge(s); skipped {}; failed {}.",
+                applied, skipped, failed
+            ));
+            if matches!(app.mode, Mode::MergeList) {
+                app.enqueue(Action::LoadMerges);
+            }
+            app.enqueue(Action::LoadList);
+            if let Some(id) = last_merged {
+                app.pending_select = Some(id);
+                app.enqueue(Action::LoadDetail(id));
+            }
         }
         Action::SetMergePreferred {
             candidate_id,

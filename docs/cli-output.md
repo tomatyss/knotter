@@ -207,10 +207,14 @@ Output: JSON object matching `TelegramImportReport`:
 Manual merge workflow for contact following and deduplication.
 
 - `knotter merge list --json` returns an array of merge candidates:
-  - `id`, `created_at`, `status`, `reason`, `source`, `preferred_contact_id`, `resolved_at`
+  - `id`, `created_at`, `status`, `reason`, `auto_merge_safe`, `source`, `preferred_contact_id`, `resolved_at`
   - `contact_a`, `contact_b` objects with `id`, `display_name`, `email`, `archived_at`, `updated_at`
 - `knotter merge show <id> --json` returns a single merge candidate object (same shape as list items).
 - `knotter merge apply <id> --json` returns the merged `Contact` object.
+- `knotter merge apply-all --json` returns a bulk apply report:
+  - `considered`, `selected`, `applied`, `skipped`, `failed` (numbers)
+  - `dry_run` (boolean)
+  - `results` array with `id`, `status`, `reason`, `source`, `primary_id`, `secondary_id`, `merged_contact_id`, `error`
 - `knotter merge dismiss <id> --json` returns the merge candidate object after dismissal.
 - `knotter merge contacts <primary> <secondary> --json` returns the merged `Contact` object.
 

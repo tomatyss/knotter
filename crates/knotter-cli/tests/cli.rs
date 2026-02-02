@@ -2,6 +2,7 @@ use assert_cmd::cargo::cargo_bin_cmd;
 use chrono::{Duration, Local, TimeZone, Utc};
 use knotter_core::domain::ContactId;
 use knotter_core::domain::InteractionKind;
+use knotter_core::domain::MergeCandidateReason;
 use knotter_core::rules::{schedule_next, MAX_SOON_DAYS};
 use knotter_core::time::parse_local_timestamp;
 use knotter_store::repo::ContactUpdate;
@@ -312,6 +313,147 @@ fn cli_merge_apply_merges_candidate() {
         .get(secondary.id)
         .expect("get secondary")
         .is_none());
+}
+
+#[test]
+fn cli_merge_apply_all_applies_safe_candidates_only() {
+    let dir = TempDir::new().expect("temp dir");
+    let db_path = dir.path().join("knotter.sqlite3");
+    let store = Store::open(&db_path).expect("open store");
+    store.migrate().expect("migrate");
+    let now = 1_700_000_000;
+
+    let primary = store
+        .contacts()
+        .create(
+            now,
+            knotter_store::repo::ContactNew {
+                display_name: "Safe Primary".to_string(),
+                email: Some("safe@example.com".to_string()),
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create primary");
+    let secondary = store
+        .contacts()
+        .create(
+            now,
+            knotter_store::repo::ContactNew {
+                display_name: "Safe Secondary".to_string(),
+                email: Some("safe-alt@example.com".to_string()),
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create secondary");
+    let safe_candidate = store
+        .merge_candidates()
+        .create(
+            now,
+            primary.id,
+            secondary.id,
+            MergeCandidateCreate {
+                reason: MergeCandidateReason::EmailDuplicate.as_str().to_string(),
+                source: Some("cli".to_string()),
+                preferred_contact_id: Some(primary.id),
+            },
+        )
+        .expect("create safe candidate");
+
+    let other_primary = store
+        .contacts()
+        .create(
+            now,
+            knotter_store::repo::ContactNew {
+                display_name: "Unsafe Primary".to_string(),
+                email: Some("unsafe@example.com".to_string()),
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create other primary");
+    let other_secondary = store
+        .contacts()
+        .create(
+            now,
+            knotter_store::repo::ContactNew {
+                display_name: "Unsafe Secondary".to_string(),
+                email: Some("unsafe-alt@example.com".to_string()),
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create other secondary");
+    let unsafe_candidate = store
+        .merge_candidates()
+        .create(
+            now,
+            other_primary.id,
+            other_secondary.id,
+            MergeCandidateCreate {
+                reason: MergeCandidateReason::EmailNameAmbiguous
+                    .as_str()
+                    .to_string(),
+                source: Some("cli".to_string()),
+                preferred_contact_id: Some(other_primary.id),
+            },
+        )
+        .expect("create unsafe candidate");
+
+    let report = run_cmd_json(&db_path, &["merge", "apply-all", "--yes"]);
+    assert_eq!(report["considered"], 2);
+    assert_eq!(report["selected"], 1);
+    assert_eq!(report["applied"], 1);
+    assert_eq!(report["skipped"], 0);
+    assert_eq!(report["failed"], 0);
+
+    let store = Store::open(&db_path).expect("open store");
+    let safe = store
+        .merge_candidates()
+        .get(safe_candidate.candidate.id)
+        .expect("get safe candidate")
+        .expect("missing safe candidate");
+    assert_eq!(
+        safe.status,
+        knotter_store::repo::MergeCandidateStatus::Merged
+    );
+    assert!(store
+        .contacts()
+        .get(secondary.id)
+        .expect("get secondary")
+        .is_none());
+
+    let unsafe_candidate = store
+        .merge_candidates()
+        .get(unsafe_candidate.candidate.id)
+        .expect("get unsafe candidate")
+        .expect("missing unsafe candidate");
+    assert_eq!(
+        unsafe_candidate.status,
+        knotter_store::repo::MergeCandidateStatus::Open
+    );
+    assert!(store
+        .contacts()
+        .get(other_secondary.id)
+        .expect("get other secondary")
+        .is_some());
 }
 
 fn restrict_config_permissions(path: &Path) {
