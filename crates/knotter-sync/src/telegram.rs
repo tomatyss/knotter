@@ -307,6 +307,7 @@ mod imp {
         fs::OpenOptions::new()
             .write(true)
             .create(true)
+            .truncate(false)
             .open(path)
             .map_err(SyncError::Io)?;
         restrict_file_permissions(path)?;
