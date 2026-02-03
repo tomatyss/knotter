@@ -1,5 +1,9 @@
 # Release Notes
 
+## v0.4.6 (2026-02-03)
+
+- Release housekeeping: bump crate versions to 0.4.6.
+
 ## v0.4.5 (2026-02-02)
 
 - Release housekeeping: bump crate versions to 0.4.5.
