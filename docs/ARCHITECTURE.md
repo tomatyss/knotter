@@ -463,8 +463,8 @@ Manual merge candidates are created when imports/sync encounter ambiguous matche
 `knotter merge` or the TUI merge list.
 Applying a merge marks the chosen candidate as merged and dismisses any other
 open candidates that referenced the removed contact.
-Some candidate reasons are marked auto-merge safe (currently duplicate-email),
-which enables bulk apply workflows.
+Some candidate reasons are marked auto-merge safe (currently duplicate-email and
+vcf-ambiguous-phone-name), which enables bulk apply workflows.
 
 Import should return a report:
 

@@ -36,7 +36,10 @@ impl MergeCandidateReason {
     }
 
     pub const fn is_auto_merge_safe(self) -> bool {
-        matches!(self, MergeCandidateReason::EmailDuplicate)
+        matches!(
+            self,
+            MergeCandidateReason::EmailDuplicate | MergeCandidateReason::VcfAmbiguousPhoneName
+        )
     }
 
     pub const fn all() -> &'static [MergeCandidateReason] {
