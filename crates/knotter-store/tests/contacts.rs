@@ -1,5 +1,5 @@
 use knotter_core::domain::{ContactId, TagName};
-use knotter_store::repo::{ContactNew, ContactUpdate, EmailOps};
+use knotter_store::repo::{ContactNew, ContactUpdate, ContactsRepo, EmailOps};
 use knotter_store::Store;
 
 #[test]
@@ -378,4 +378,74 @@ fn list_names_for_contacts_does_not_touch_main_temp_contact_ids_table() {
         )
         .expect("marker row");
     assert_eq!(marker, "persist");
+}
+
+#[test]
+fn create_with_tags_in_tx_commits_with_outer_scope() {
+    let store = Store::open_in_memory().expect("open in memory");
+    store.migrate().expect("migrate");
+    let now = 1_700_000_000;
+
+    let tx = store.connection().unchecked_transaction().expect("tx");
+    let contact = ContactsRepo::new(&tx)
+        .create_with_tags(
+            now,
+            ContactNew {
+                display_name: "Outer Commit".to_string(),
+                email: None,
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+            vec![TagName::new("friends").expect("tag")],
+        )
+        .expect("create");
+    tx.commit().expect("commit");
+
+    let fetched = store
+        .contacts()
+        .get(contact.id)
+        .expect("get contact")
+        .expect("contact exists");
+    assert_eq!(fetched.display_name, "Outer Commit");
+    let tags = store
+        .tags()
+        .list_for_contact(&contact.id.to_string())
+        .expect("list tags");
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0].name.as_str(), "friends");
+}
+
+#[test]
+fn create_with_tags_in_tx_rolls_back_with_outer_scope() {
+    let store = Store::open_in_memory().expect("open in memory");
+    store.migrate().expect("migrate");
+    let now = 1_700_000_000;
+
+    let contact_id = {
+        let tx = store.connection().unchecked_transaction().expect("tx");
+        let contact = ContactsRepo::new(&tx)
+            .create_with_tags(
+                now,
+                ContactNew {
+                    display_name: "Outer Rollback".to_string(),
+                    email: None,
+                    phone: None,
+                    handle: None,
+                    timezone: None,
+                    next_touchpoint_at: None,
+                    cadence_days: None,
+                    archived_at: None,
+                },
+                vec![TagName::new("friends").expect("tag")],
+            )
+            .expect("create");
+        contact.id
+    };
+
+    let missing = store.contacts().get(contact_id).expect("get contact");
+    assert!(missing.is_none());
 }

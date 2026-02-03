@@ -136,22 +136,14 @@ impl<'a> ContactsRepo<'a> {
         input: ContactNew,
         tags: Vec<TagName>,
     ) -> Result<Contact> {
-        let tx = self.conn.unchecked_transaction()?;
-        let contact = create_inner(&tx, now_utc, input)?;
-        if let Some(email) = contact.email.as_deref() {
-            crate::repo::emails::EmailsRepo::new(&tx).add_email(
-                now_utc,
-                &contact.id,
-                email,
-                Some("primary"),
-                true,
-            )?;
+        if self.conn.is_autocommit() {
+            let tx = self.conn.unchecked_transaction()?;
+            let contact = create_with_tags_inner(&tx, now_utc, input, tags)?;
+            tx.commit()?;
+            Ok(contact)
+        } else {
+            create_with_tags_inner(self.conn, now_utc, input, tags)
         }
-        if !tags.is_empty() {
-            crate::repo::tags::set_contact_tags_inner(&tx, &contact.id.to_string(), tags)?;
-        }
-        tx.commit()?;
-        Ok(contact)
     }
 
     pub fn get(&self, id: ContactId) -> Result<Option<Contact>> {
@@ -387,6 +379,28 @@ fn create_inner(conn: &Connection, now_utc: i64, input: ContactNew) -> Result<Co
         ],
     )?;
 
+    Ok(contact)
+}
+
+fn create_with_tags_inner(
+    conn: &Connection,
+    now_utc: i64,
+    input: ContactNew,
+    tags: Vec<TagName>,
+) -> Result<Contact> {
+    let contact = create_inner(conn, now_utc, input)?;
+    if let Some(email) = contact.email.as_deref() {
+        crate::repo::emails::EmailsRepo::new(conn).add_email(
+            now_utc,
+            &contact.id,
+            email,
+            Some("primary"),
+            true,
+        )?;
+    }
+    if !tags.is_empty() {
+        crate::repo::tags::set_contact_tags_inner(conn, &contact.id.to_string(), tags)?;
+    }
     Ok(contact)
 }
 
