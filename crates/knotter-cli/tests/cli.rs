@@ -907,6 +907,39 @@ fn cli_import_vcf_creates_contact() {
 }
 
 #[test]
+fn cli_import_vcf_dedupes_by_uid() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let vcf_path = temp.path().join("contacts.vcf");
+
+    let vcf = "BEGIN:VCARD\nVERSION:3.0\nUID:abc-123\nFN:Grace Hopper\nEND:VCARD\n";
+    std::fs::write(&vcf_path, vcf).expect("write vcf");
+
+    run_cmd(
+        &db_path,
+        &["import", "vcf", vcf_path.to_str().expect("path")],
+    );
+
+    let list = run_cmd_json(&db_path, &["list"]);
+    let items = list.as_array().expect("array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["display_name"], "Grace Hopper");
+
+    let vcf = "BEGIN:VCARD\nVERSION:3.0\nUID:abc-123\nFN:Grace H.\nEND:VCARD\n";
+    std::fs::write(&vcf_path, vcf).expect("write vcf");
+
+    run_cmd(
+        &db_path,
+        &["import", "vcf", vcf_path.to_str().expect("path")],
+    );
+
+    let list = run_cmd_json(&db_path, &["list"]);
+    let items = list.as_array().expect("array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["display_name"], "Grace H.");
+}
+
+#[test]
 fn cli_import_vcf_updates_when_emails_match_active_and_archived() {
     let temp = TempDir::new().expect("temp dir");
     let db_path = temp.path().join("knotter.sqlite3");

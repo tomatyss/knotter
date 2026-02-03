@@ -26,6 +26,7 @@ pub struct VcfContact {
     pub next_touchpoint_at: Option<i64>,
     pub cadence_days: Option<i32>,
     pub dates: Vec<ContactDateInput>,
+    pub external_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -133,6 +134,18 @@ pub fn parse_vcf(data: &str) -> Result<ParsedVcf> {
                 let value = unescape_vcard_value(&raw_value);
                 if !value.trim().is_empty() {
                     card.date_fields.push(value.trim().to_string());
+                }
+            }
+            "UID" => {
+                let value = unescape_vcard_value(&raw_value);
+                if card.uid.is_none() && !value.trim().is_empty() {
+                    card.uid = Some(value.trim().to_string());
+                }
+            }
+            "X-ABUID" => {
+                let value = unescape_vcard_value(&raw_value);
+                if card.ab_uid.is_none() && !value.trim().is_empty() {
+                    card.ab_uid = Some(value.trim().to_string());
                 }
             }
             _ => {}
@@ -255,6 +268,8 @@ struct RawCard {
     cadence_days: Option<String>,
     birthday: Option<String>,
     date_fields: Vec<String>,
+    uid: Option<String>,
+    ab_uid: Option<String>,
 }
 
 impl RawCard {
@@ -390,6 +405,7 @@ impl RawCard {
             next_touchpoint_at,
             cadence_days,
             dates,
+            external_id: normalize_external_id(self.uid.as_deref(), self.ab_uid.as_deref()),
         })
     }
 }
@@ -513,6 +529,17 @@ fn unescape_vcard_value(value: &str) -> String {
     out
 }
 
+fn normalize_external_id(uid: Option<&str>, ab_uid: Option<&str>) -> Option<String> {
+    let raw = uid.or(ab_uid)?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let lowered = trimmed.to_ascii_lowercase();
+    let normalized = lowered.strip_prefix("urn:uuid:").unwrap_or(&lowered);
+    Some(normalized.to_string())
+}
+
 fn format_vcard_date(month: u8, day: u8, year: Option<i32>) -> String {
     match year {
         Some(year) => format!("{year:04}-{month:02}-{day:02}"),
@@ -634,6 +661,19 @@ mod tests {
         );
         assert_eq!(contact.phone.as_deref(), Some("555-1234"));
         assert_eq!(contact.tags.len(), 2);
+    }
+
+    #[test]
+    fn parse_vcf_reads_uid_and_abuid() {
+        let data = "BEGIN:VCARD\nVERSION:3.0\nUID:urn:uuid:ABC-123\nFN:Jane Doe\nEND:VCARD\n";
+        let parsed = parse_vcf(data).expect("parse");
+        assert_eq!(parsed.contacts.len(), 1);
+        assert_eq!(parsed.contacts[0].external_id.as_deref(), Some("abc-123"));
+
+        let data = "BEGIN:VCARD\nVERSION:3.0\nX-ABUID:XYZ\nFN:Jane Doe\nEND:VCARD\n";
+        let parsed = parse_vcf(data).expect("parse");
+        assert_eq!(parsed.contacts.len(), 1);
+        assert_eq!(parsed.contacts[0].external_id.as_deref(), Some("xyz"));
     }
 
     #[test]

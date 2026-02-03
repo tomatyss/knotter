@@ -1,7 +1,7 @@
 use knotter_core::domain::ContactDateKind;
 use knotter_store::repo::{
-    ContactDateNew, ContactMergeOptions, ContactNew, InteractionNew, MergeCandidateCreate,
-    MergeCandidateStatus, TelegramAccountNew, TelegramMessageRecord,
+    ContactDateNew, ContactMergeOptions, ContactNew, ContactSourceNew, InteractionNew,
+    MergeCandidateCreate, MergeCandidateStatus, TelegramAccountNew, TelegramMessageRecord,
 };
 use knotter_store::Store;
 
@@ -309,6 +309,71 @@ fn merge_contacts_moves_telegram_accounts_and_messages() {
         )
         .expect("query telegram message");
     assert_eq!(contact_id, primary.id.to_string());
+}
+
+#[test]
+fn merge_contacts_moves_contact_sources() {
+    let store = Store::open_in_memory().expect("open store");
+    store.migrate().expect("migrate");
+    let now = 1_700_000_000;
+
+    let primary = store
+        .contacts()
+        .create(
+            now,
+            ContactNew {
+                display_name: "Ada".to_string(),
+                email: None,
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create primary");
+
+    let secondary = store
+        .contacts()
+        .create(
+            now,
+            ContactNew {
+                display_name: "Ada Lovelace".to_string(),
+                email: None,
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create secondary");
+
+    store
+        .contact_sources()
+        .upsert(
+            now,
+            ContactSourceNew {
+                contact_id: secondary.id,
+                source: "carddav:test".to_string(),
+                external_id: "uid-1".to_string(),
+            },
+        )
+        .expect("insert source");
+
+    let options = ContactMergeOptions::default();
+    store
+        .contacts()
+        .merge_contacts(now + 10, primary.id, secondary.id, options)
+        .expect("merge contacts");
+
+    let found = store
+        .contact_sources()
+        .find_contact_id("carddav:test", "uid-1")
+        .expect("find source");
+    assert_eq!(found, Some(primary.id));
 }
 
 #[test]

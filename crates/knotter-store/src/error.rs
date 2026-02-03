@@ -30,6 +30,8 @@ pub enum StoreError {
     DuplicateEmail(String),
     #[error("duplicate telegram user id: {0}")]
     DuplicateTelegramUser(i64),
+    #[error("duplicate contact source: {0}:{1}")]
+    DuplicateContactSource(String, String),
     #[error("invalid merge: {0}")]
     InvalidMerge(String),
 }
@@ -51,6 +53,7 @@ pub enum StoreErrorKind {
     InvalidFilter,
     DuplicateEmail,
     DuplicateTelegramUser,
+    DuplicateContactSource,
     InvalidMerge,
 }
 
@@ -70,6 +73,7 @@ impl StoreError {
             StoreError::InvalidFilter(_) => StoreErrorKind::InvalidFilter,
             StoreError::DuplicateEmail(_) => StoreErrorKind::DuplicateEmail,
             StoreError::DuplicateTelegramUser(_) => StoreErrorKind::DuplicateTelegramUser,
+            StoreError::DuplicateContactSource(_, _) => StoreErrorKind::DuplicateContactSource,
             StoreError::InvalidMerge(_) => StoreErrorKind::InvalidMerge,
         }
     }

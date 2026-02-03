@@ -1,4 +1,5 @@
 pub mod contact_dates;
+pub mod contact_sources;
 pub mod contacts;
 pub mod email_sync;
 pub mod emails;
@@ -9,6 +10,7 @@ pub mod telegram_accounts;
 pub mod telegram_sync;
 
 pub use contact_dates::{ContactDateNew, ContactDateOccurrence, ContactDatesRepo};
+pub use contact_sources::{ContactSource, ContactSourceNew, ContactSourcesRepo};
 pub use contacts::{
     ContactMergeOptions, ContactNew, ContactUpdate, ContactsRepo, EmailOps,
     MergeArchivedPreference, MergePreference, MergeTouchpointPreference,

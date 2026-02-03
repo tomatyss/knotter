@@ -76,6 +76,7 @@ fn store_exit_code(err: &StoreError) -> u8 {
         | StoreErrorKind::InvalidDataPath
         | StoreErrorKind::DuplicateEmail
         | StoreErrorKind::DuplicateTelegramUser
+        | StoreErrorKind::DuplicateContactSource
         | StoreErrorKind::InvalidMerge
         | StoreErrorKind::Core => EXIT_INVALID_INPUT,
         StoreErrorKind::MissingHomeDir

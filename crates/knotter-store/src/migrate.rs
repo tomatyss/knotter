@@ -35,6 +35,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "009_telegram_sync.sql",
         include_str!("../migrations/009_telegram_sync.sql"),
     ),
+    (
+        "010_contact_sources.sql",
+        include_str!("../migrations/010_contact_sources.sql"),
+    ),
 ];
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {

@@ -669,6 +669,22 @@ fn merge_contacts_inner(
     )?;
 
     conn.execute(
+        "DELETE FROM contact_sources
+         WHERE contact_id = ?2
+           AND EXISTS (
+             SELECT 1 FROM contact_sources s2
+             WHERE s2.contact_id = ?1
+               AND s2.source = contact_sources.source
+               AND s2.external_id = contact_sources.external_id
+           );",
+        params![primary_id.to_string(), secondary_id.to_string()],
+    )?;
+    conn.execute(
+        "UPDATE contact_sources SET contact_id = ?1 WHERE contact_id = ?2;",
+        params![primary_id.to_string(), secondary_id.to_string()],
+    )?;
+
+    conn.execute(
         "UPDATE contact_dates
          SET year = (
              SELECT d2.year FROM contact_dates d2
