@@ -535,9 +535,39 @@ fn normalize_external_id(uid: Option<&str>, ab_uid: Option<&str>) -> Option<Stri
     if trimmed.is_empty() {
         return None;
     }
-    let lowered = trimmed.to_ascii_lowercase();
-    let normalized = lowered.strip_prefix("urn:uuid:").unwrap_or(&lowered);
-    Some(normalized.to_string())
+    let candidate = strip_urn_uuid_prefix(trimmed).unwrap_or(trimmed);
+    if candidate.is_empty() {
+        return None;
+    }
+    if is_uuid_like(candidate) {
+        return Some(candidate.to_ascii_lowercase());
+    }
+    Some(candidate.to_string())
+}
+
+fn strip_urn_uuid_prefix(value: &str) -> Option<&str> {
+    let prefix = "urn:uuid:";
+    let head = value.get(..prefix.len())?;
+    if head.eq_ignore_ascii_case(prefix) {
+        return value.get(prefix.len()..);
+    }
+    None
+}
+
+fn is_uuid_like(value: &str) -> bool {
+    let mut candidate = value;
+    if candidate.len() == 38 && candidate.starts_with('{') && candidate.ends_with('}') {
+        candidate = &candidate[1..candidate.len() - 1];
+    }
+
+    match candidate.len() {
+        32 => candidate.chars().all(|ch| ch.is_ascii_hexdigit()),
+        36 => candidate.chars().enumerate().all(|(idx, ch)| match idx {
+            8 | 13 | 18 | 23 => ch == '-',
+            _ => ch.is_ascii_hexdigit(),
+        }),
+        _ => false,
+    }
 }
 
 fn format_vcard_date(month: u8, day: u8, year: Option<i32>) -> String {
@@ -664,16 +694,52 @@ mod tests {
     }
 
     #[test]
-    fn parse_vcf_reads_uid_and_abuid() {
-        let data = "BEGIN:VCARD\nVERSION:3.0\nUID:urn:uuid:ABC-123\nFN:Jane Doe\nEND:VCARD\n";
+    fn parse_vcf_normalizes_uuid_uids() {
+        let data = concat!(
+            "BEGIN:VCARD\n",
+            "VERSION:3.0\n",
+            "UID:urn:uuid:ABCDEF12-3456-7890-ABCD-EF1234567890\n",
+            "FN:Jane Doe\n",
+            "END:VCARD\n",
+        );
         let parsed = parse_vcf(data).expect("parse");
         assert_eq!(parsed.contacts.len(), 1);
-        assert_eq!(parsed.contacts[0].external_id.as_deref(), Some("abc-123"));
+        assert_eq!(
+            parsed.contacts[0].external_id.as_deref(),
+            Some("abcdef12-3456-7890-abcd-ef1234567890")
+        );
+
+        let data = concat!(
+            "BEGIN:VCARD\n",
+            "VERSION:3.0\n",
+            "UID:ABCDEF1234567890ABCDEF1234567890\n",
+            "FN:Jane Doe\n",
+            "END:VCARD\n",
+        );
+        let parsed = parse_vcf(data).expect("parse");
+        assert_eq!(parsed.contacts.len(), 1);
+        assert_eq!(
+            parsed.contacts[0].external_id.as_deref(),
+            Some("abcdef1234567890abcdef1234567890")
+        );
+    }
+
+    #[test]
+    fn parse_vcf_preserves_non_uuid_uid_case() {
+        let data = "BEGIN:VCARD\nVERSION:3.0\nUID:FoO-Bar\nFN:Jane Doe\nEND:VCARD\n";
+        let parsed = parse_vcf(data).expect("parse");
+        assert_eq!(parsed.contacts.len(), 1);
+        assert_eq!(parsed.contacts[0].external_id.as_deref(), Some("FoO-Bar"));
+
+        let data = "BEGIN:VCARD\nVERSION:3.0\nUID:urn:uuid:FOO\nFN:Jane Doe\nEND:VCARD\n";
+        let parsed = parse_vcf(data).expect("parse");
+        assert_eq!(parsed.contacts.len(), 1);
+        assert_eq!(parsed.contacts[0].external_id.as_deref(), Some("FOO"));
 
         let data = "BEGIN:VCARD\nVERSION:3.0\nX-ABUID:XYZ\nFN:Jane Doe\nEND:VCARD\n";
         let parsed = parse_vcf(data).expect("parse");
         assert_eq!(parsed.contacts.len(), 1);
-        assert_eq!(parsed.contacts[0].external_id.as_deref(), Some("xyz"));
+        assert_eq!(parsed.contacts[0].external_id.as_deref(), Some("XYZ"));
     }
 
     #[test]

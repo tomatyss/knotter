@@ -1205,7 +1205,15 @@ fn import_contacts(
 
     for contact in contacts {
         let contact = apply_extra_tags(contact, &options.extra_tags);
-        match apply_vcf_contact(ctx, source_name, now, contact, mode, &options) {
+        match apply_vcf_contact(
+            ctx,
+            source_name,
+            now,
+            contact,
+            mode,
+            &options,
+            &mut report.warnings,
+        ) {
             Ok(ImportOutcome::Created) => report.created += 1,
             Ok(ImportOutcome::Updated) => report.updated += 1,
             Ok(ImportOutcome::Staged {
@@ -2383,38 +2391,82 @@ fn apply_vcf_contact(
     contact: vcf::VcfContact,
     mode: ImportMode,
     options: &ImportOptions,
+    warnings: &mut Vec<String>,
 ) -> Result<ImportOutcome> {
-    let external_id = contact.external_id.clone();
+    let mut external_id = contact.external_id.clone();
+    let mut matched_contact_id: Option<ContactId> = None;
 
-    if let Some(external_id) = external_id.as_deref() {
-        if let Some(contact_id) = ctx
+    if let Some(external_id_value) = external_id.as_deref() {
+        if let Some(matched) = ctx
             .store
             .contact_sources()
-            .find_contact_id(source_name, external_id)?
+            .find_contact(source_name, external_id_value)?
         {
-            let Some(existing) = ctx.store.contacts().get(contact_id)? else {
-                return Ok(ImportOutcome::Skipped(
-                    "contact mapping exists but contact is missing; skipping".to_string(),
+            let matches = ctx
+                .store
+                .contact_sources()
+                .find_case_insensitive_matches(source_name, external_id_value)?;
+            if matches.len() > 1 {
+                warnings.push(format!(
+                    "ambiguous case-insensitive external id match for {source_name}: incoming \"{external_id_value}\" matches {} stored ids; ignoring external id match",
+                    matches.len()
                 ));
-            };
-            if existing.archived_at.is_some() {
-                return Ok(ImportOutcome::Skipped(
-                    "external id matches archived contact; skipping".to_string(),
-                ));
+                external_id = None;
+            } else {
+                matched_contact_id = Some(matched.contact_id);
+                if matched.external_id != external_id_value {
+                    warnings.push(format!(
+                        "case-insensitive external id match for {source_name}: incoming \"{external_id_value}\" matched stored \"{}\"",
+                        matched.external_id
+                    ));
+                }
+                external_id = Some(matched.external_id.clone());
             }
-            if matches!(mode, ImportMode::DryRun) {
-                return Ok(ImportOutcome::Updated);
+        } else {
+            let matches = ctx
+                .store
+                .contact_sources()
+                .find_case_insensitive_matches(source_name, external_id_value)?;
+            match matches.as_slice() {
+                [] => {}
+                [single] => {
+                    matched_contact_id = Some(single.contact_id);
+                    if single.external_id != external_id_value {
+                        warnings.push(format!(
+                            "case-insensitive external id match for {source_name}: incoming \"{external_id_value}\" matched stored \"{}\"",
+                            single.external_id
+                        ));
+                    }
+                    external_id = Some(single.external_id.clone());
+                }
+                _ => {
+                    warnings.push(format!(
+                        "ambiguous case-insensitive external id match for {source_name}: incoming \"{external_id_value}\" matches {} stored ids; ignoring external id match",
+                        matches.len()
+                    ));
+                    external_id = None;
+                }
             }
-            apply_vcf_update(ctx, now_utc, existing.id, contact)?;
-            upsert_contact_source(
-                ctx,
-                now_utc,
-                source_name,
-                existing.id,
-                Some(external_id.to_string()),
-            )?;
+        }
+    }
+
+    if let Some(contact_id) = matched_contact_id {
+        let Some(existing) = ctx.store.contacts().get(contact_id)? else {
+            return Ok(ImportOutcome::Skipped(
+                "contact mapping exists but contact is missing; skipping".to_string(),
+            ));
+        };
+        if existing.archived_at.is_some() {
+            return Ok(ImportOutcome::Skipped(
+                "external id matches archived contact; skipping".to_string(),
+            ));
+        }
+        if matches!(mode, ImportMode::DryRun) {
             return Ok(ImportOutcome::Updated);
         }
+        apply_vcf_update(ctx, now_utc, existing.id, contact)?;
+        upsert_contact_source(ctx, now_utc, source_name, existing.id, external_id)?;
+        return Ok(ImportOutcome::Updated);
     }
 
     let mut matched_contacts: Vec<Contact> = Vec::new();
@@ -2993,7 +3045,7 @@ mod tests {
         EmailMergePolicy, MacosSourceConfig, TelegramAccountConfig, TelegramMergePolicy,
         DEFAULT_TELEGRAM_SNIPPET_LEN,
     };
-    use knotter_store::repo::ContactNew;
+    use knotter_store::repo::{ContactNew, ContactSourceNew};
     use knotter_store::Store;
     use knotter_sync::email::{EmailAddress, EmailHeader};
     use knotter_sync::telegram::{TelegramMessage, TelegramMessageBatch};
@@ -3336,9 +3388,17 @@ mod tests {
             external_id: None,
         };
 
-        let outcome =
-            apply_vcf_contact(&ctx, "test", now + 10, contact, ImportMode::Apply, &options)
-                .expect("apply vcf");
+        let mut warnings = Vec::new();
+        let outcome = apply_vcf_contact(
+            &ctx,
+            "test",
+            now + 10,
+            contact,
+            ImportMode::Apply,
+            &options,
+            &mut warnings,
+        )
+        .expect("apply vcf");
         assert!(matches!(outcome, ImportOutcome::Updated));
 
         let updated = store
@@ -3352,6 +3412,229 @@ mod tests {
             .list(None)
             .expect("list candidates");
         assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn vcf_import_matches_case_insensitive_external_id() {
+        let store = Store::open_in_memory().expect("open store");
+        store.migrate().expect("migrate");
+        let now = 1_700_000_000;
+
+        let existing = store
+            .contacts()
+            .create(
+                now,
+                ContactNew {
+                    display_name: "Original".to_string(),
+                    email: None,
+                    phone: None,
+                    handle: None,
+                    timezone: None,
+                    next_touchpoint_at: None,
+                    cadence_days: None,
+                    archived_at: None,
+                },
+            )
+            .expect("create contact");
+
+        store
+            .contact_sources()
+            .upsert(
+                now,
+                ContactSourceNew {
+                    contact_id: existing.id,
+                    source: "test".to_string(),
+                    external_id: "uid-abc".to_string(),
+                },
+            )
+            .expect("insert source");
+
+        let config = AppConfig::default();
+        let ctx = Context {
+            store: &store,
+            json: false,
+            config: &config,
+        };
+        let options = ImportOptions {
+            dry_run: false,
+            limit: None,
+            retry_skipped: false,
+            extra_tags: Vec::new(),
+            match_phone_name: false,
+        };
+        let contact = vcf::VcfContact {
+            display_name: "Updated".to_string(),
+            emails: Vec::new(),
+            phone: None,
+            tags: Vec::new(),
+            next_touchpoint_at: None,
+            cadence_days: None,
+            dates: Vec::new(),
+            external_id: Some("UID-ABC".to_string()),
+        };
+
+        let mut warnings = Vec::new();
+        let outcome = apply_vcf_contact(
+            &ctx,
+            "test",
+            now + 10,
+            contact,
+            ImportMode::Apply,
+            &options,
+            &mut warnings,
+        )
+        .expect("apply vcf");
+        assert!(matches!(outcome, ImportOutcome::Updated));
+        assert!(warnings
+            .iter()
+            .any(|warning| warning.contains("case-insensitive external id match")));
+
+        let updated = store
+            .contacts()
+            .get(existing.id)
+            .expect("get contact")
+            .expect("contact exists");
+        assert_eq!(updated.display_name, "Updated");
+
+        let count: i64 = store
+            .connection()
+            .query_row(
+                "SELECT COUNT(*) FROM contact_sources WHERE source = 'test';",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count contact_sources");
+        assert_eq!(count, 1);
+        let exact = store
+            .contact_sources()
+            .find_contact_id("test", "UID-ABC")
+            .expect("find source");
+        assert_eq!(exact, Some(existing.id));
+    }
+
+    #[test]
+    fn vcf_import_ignores_ambiguous_case_insensitive_external_id() {
+        let store = Store::open_in_memory().expect("open store");
+        store.migrate().expect("migrate");
+        let now = 1_700_000_000;
+
+        let primary = store
+            .contacts()
+            .create(
+                now,
+                ContactNew {
+                    display_name: "Primary".to_string(),
+                    email: Some("primary@example.com".to_string()),
+                    phone: None,
+                    handle: None,
+                    timezone: None,
+                    next_touchpoint_at: None,
+                    cadence_days: None,
+                    archived_at: None,
+                },
+            )
+            .expect("create primary");
+        let secondary = store
+            .contacts()
+            .create(
+                now + 10,
+                ContactNew {
+                    display_name: "Secondary".to_string(),
+                    email: Some("secondary@example.com".to_string()),
+                    phone: None,
+                    handle: None,
+                    timezone: None,
+                    next_touchpoint_at: None,
+                    cadence_days: None,
+                    archived_at: None,
+                },
+            )
+            .expect("create secondary");
+
+        let conn = store.connection();
+        conn.execute(
+            &format!(
+                "INSERT INTO contact_sources (contact_id, source, external_id, external_id_norm, created_at, updated_at)
+                 VALUES ('{}', 'test', 'Uid-Abc', NULL, {}, {});",
+                primary.id, now, now
+            ),
+            [],
+        )
+        .expect("insert primary source");
+        conn.execute(
+            &format!(
+                "INSERT INTO contact_sources (contact_id, source, external_id, external_id_norm, created_at, updated_at)
+                 VALUES ('{}', 'test', 'UID-ABC', NULL, {}, {});",
+                secondary.id,
+                now + 10,
+                now + 10
+            ),
+            [],
+        )
+        .expect("insert secondary source");
+
+        let config = AppConfig::default();
+        let ctx = Context {
+            store: &store,
+            json: false,
+            config: &config,
+        };
+        let options = ImportOptions {
+            dry_run: false,
+            limit: None,
+            retry_skipped: false,
+            extra_tags: Vec::new(),
+            match_phone_name: false,
+        };
+        let contact = vcf::VcfContact {
+            display_name: "Updated".to_string(),
+            emails: vec!["primary@example.com".to_string()],
+            phone: None,
+            tags: Vec::new(),
+            next_touchpoint_at: None,
+            cadence_days: None,
+            dates: Vec::new(),
+            external_id: Some("uid-abc".to_string()),
+        };
+
+        let mut warnings = Vec::new();
+        let outcome = apply_vcf_contact(
+            &ctx,
+            "test",
+            now + 20,
+            contact,
+            ImportMode::Apply,
+            &options,
+            &mut warnings,
+        )
+        .expect("apply vcf");
+        assert!(matches!(outcome, ImportOutcome::Updated));
+        assert!(warnings
+            .iter()
+            .any(|warning| warning.contains("ambiguous case-insensitive")));
+
+        let updated = store
+            .contacts()
+            .get(primary.id)
+            .expect("get primary")
+            .expect("primary exists");
+        assert_eq!(updated.display_name, "Updated");
+
+        let untouched = store
+            .contacts()
+            .get(secondary.id)
+            .expect("get secondary")
+            .expect("secondary exists");
+        assert_eq!(untouched.display_name, "Secondary");
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM contact_sources WHERE source = 'test';",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count contact_sources");
+        assert_eq!(count, 2);
     }
 
     #[test]
@@ -3455,9 +3738,17 @@ mod tests {
             external_id: None,
         };
 
-        let outcome =
-            apply_vcf_contact(&ctx, "test", now + 10, contact, ImportMode::Apply, &options)
-                .expect("apply vcf");
+        let mut warnings = Vec::new();
+        let outcome = apply_vcf_contact(
+            &ctx,
+            "test",
+            now + 10,
+            contact,
+            ImportMode::Apply,
+            &options,
+            &mut warnings,
+        )
+        .expect("apply vcf");
         match outcome {
             ImportOutcome::Skipped(message) => {
                 assert!(message.contains("archived"));
@@ -3521,9 +3812,17 @@ mod tests {
             external_id: None,
         };
 
-        let outcome =
-            apply_vcf_contact(&ctx, "test", now + 10, contact, ImportMode::Apply, &options)
-                .expect("apply vcf");
+        let mut warnings = Vec::new();
+        let outcome = apply_vcf_contact(
+            &ctx,
+            "test",
+            now + 10,
+            contact,
+            ImportMode::Apply,
+            &options,
+            &mut warnings,
+        )
+        .expect("apply vcf");
         assert!(matches!(outcome, ImportOutcome::Updated));
 
         let updated = store
@@ -3583,9 +3882,17 @@ mod tests {
             external_id: None,
         };
 
-        let outcome =
-            apply_vcf_contact(&ctx, "test", now + 10, contact, ImportMode::Apply, &options)
-                .expect("apply vcf");
+        let mut warnings = Vec::new();
+        let outcome = apply_vcf_contact(
+            &ctx,
+            "test",
+            now + 10,
+            contact,
+            ImportMode::Apply,
+            &options,
+            &mut warnings,
+        )
+        .expect("apply vcf");
         assert!(matches!(outcome, ImportOutcome::Updated));
 
         let updated = store
@@ -3664,6 +3971,7 @@ mod tests {
             external_id: None,
         };
 
+        let mut warnings = Vec::new();
         let outcome = apply_vcf_contact(
             &ctx,
             "test",
@@ -3671,6 +3979,7 @@ mod tests {
             contact,
             ImportMode::DryRun,
             &options,
+            &mut warnings,
         )
         .expect("apply vcf");
         match outcome {

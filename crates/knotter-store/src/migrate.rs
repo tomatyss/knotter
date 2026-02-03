@@ -39,6 +39,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "010_contact_sources.sql",
         include_str!("../migrations/010_contact_sources.sql"),
     ),
+    (
+        "011_contact_sources_external_id_norm.sql",
+        include_str!("../migrations/011_contact_sources_external_id_norm.sql"),
+    ),
 ];
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
