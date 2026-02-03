@@ -299,8 +299,31 @@ CREATE TABLE IF NOT EXISTS telegram_messages (
 CREATE INDEX IF NOT EXISTS idx_telegram_messages_contact_occurred
   ON telegram_messages(contact_id, occurred_at DESC);
 ```
-```
 
+## Migration: 010_contact_sources.sql
+
+Adds contact source mappings for stable external ids (e.g., vCard UID).
+
+```sql
+-- 010_contact_sources.sql
+
+CREATE TABLE IF NOT EXISTS contact_sources (
+  contact_id TEXT NOT NULL,
+  source TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+
+  PRIMARY KEY (source, external_id),
+  FOREIGN KEY(contact_id) REFERENCES contacts(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_sources_contact_id
+  ON contact_sources(contact_id);
+
+CREATE INDEX IF NOT EXISTS idx_contact_sources_source
+  ON contact_sources(source);
+```
 ## Migration: 006_contact_merge_candidates.sql
 
 Adds a table for manual merge candidates created during imports/sync.

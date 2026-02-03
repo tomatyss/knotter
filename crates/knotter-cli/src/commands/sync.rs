@@ -30,6 +30,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use url::Url;
 
 #[derive(Debug, Subcommand)]
 pub enum ImportCommand {
@@ -322,9 +323,10 @@ pub fn import_carddav(ctx: &Context<'_>, args: ImportCarddavArgs) -> Result<()> 
         .user_agent
         .clone()
         .or_else(|| Some(default_user_agent()));
+    let source_label = carddav_source_label(&args.url, &args.username);
     let source = CardDavSource::new(args.url, args.username, password, user_agent);
     let options = build_import_options(&args.common, None, false)?;
-    import_from_source(ctx, &source, source.source_name(), options)
+    import_from_source(ctx, &source, &source_label, options)
 }
 
 pub fn import_source(ctx: &Context<'_>, args: ImportSourceArgs) -> Result<()> {
@@ -1226,7 +1228,8 @@ fn import_contacts(
                     match store_err.kind() {
                         StoreErrorKind::Core
                         | StoreErrorKind::InvalidId
-                        | StoreErrorKind::DuplicateEmail => {
+                        | StoreErrorKind::DuplicateEmail
+                        | StoreErrorKind::DuplicateContactSource => {
                             report.skipped += 1;
                             report
                                 .warnings
@@ -2327,6 +2330,25 @@ fn default_user_agent() -> String {
     format!("knotter/{}", env!("CARGO_PKG_VERSION"))
 }
 
+fn carddav_source_label(addressbook_url: &str, username: &str) -> String {
+    let parsed = Url::parse(addressbook_url);
+    if let Ok(url) = parsed {
+        let host = url.host_str().unwrap_or("unknown");
+        let port = url
+            .port()
+            .map(|value| format!(":{value}"))
+            .unwrap_or_default();
+        let path = url.path().trim_end_matches('/');
+        if path.is_empty() || path == "/" {
+            format!("carddav:{username}@{host}{port}")
+        } else {
+            format!("carddav:{username}@{host}{port}{path}")
+        }
+    } else {
+        format!("carddav:{username}@{addressbook_url}")
+    }
+}
+
 #[derive(Debug)]
 enum ImportOutcome {
     Created,
@@ -2362,6 +2384,39 @@ fn apply_vcf_contact(
     mode: ImportMode,
     options: &ImportOptions,
 ) -> Result<ImportOutcome> {
+    let external_id = contact.external_id.clone();
+
+    if let Some(external_id) = external_id.as_deref() {
+        if let Some(contact_id) = ctx
+            .store
+            .contact_sources()
+            .find_contact_id(source_name, external_id)?
+        {
+            let Some(existing) = ctx.store.contacts().get(contact_id)? else {
+                return Ok(ImportOutcome::Skipped(
+                    "contact mapping exists but contact is missing; skipping".to_string(),
+                ));
+            };
+            if existing.archived_at.is_some() {
+                return Ok(ImportOutcome::Skipped(
+                    "external id matches archived contact; skipping".to_string(),
+                ));
+            }
+            if matches!(mode, ImportMode::DryRun) {
+                return Ok(ImportOutcome::Updated);
+            }
+            apply_vcf_update(ctx, now_utc, existing.id, contact)?;
+            upsert_contact_source(
+                ctx,
+                now_utc,
+                source_name,
+                existing.id,
+                Some(external_id.to_string()),
+            )?;
+            return Ok(ImportOutcome::Updated);
+        }
+    }
+
     let mut matched_contacts: Vec<Contact> = Vec::new();
     let mut active_matches: Vec<Contact> = Vec::new();
     let mut archived_found = false;
@@ -2403,6 +2458,7 @@ fn apply_vcf_contact(
             return Ok(ImportOutcome::Updated);
         }
         apply_vcf_update(ctx, now_utc, existing.id, contact)?;
+        upsert_contact_source(ctx, now_utc, source_name, existing.id, external_id)?;
         return Ok(ImportOutcome::Updated);
     }
 
@@ -2430,6 +2486,7 @@ fn apply_vcf_contact(
                     return Ok(ImportOutcome::Updated);
                 }
                 apply_vcf_update(ctx, now_utc, existing.id, contact)?;
+                upsert_contact_source(ctx, now_utc, source_name, existing.id, external_id)?;
                 return Ok(ImportOutcome::Updated);
             }
         }
@@ -2453,6 +2510,7 @@ fn apply_vcf_contact(
         next_touchpoint_at,
         cadence_days,
         dates,
+        external_id: _,
     } = contact;
     let primary = emails.first().cloned();
     let new_contact = ContactNew {
@@ -2472,6 +2530,7 @@ fn apply_vcf_contact(
         emails,
         Some("vcf"),
     )?;
+    upsert_contact_source(ctx, now_utc, source_name, created.id, external_id)?;
     apply_contact_dates(ctx, now_utc, created.id, dates)?;
     Ok(ImportOutcome::Created)
 }
@@ -2574,6 +2633,7 @@ fn apply_vcf_update(
         next_touchpoint_at,
         cadence_days,
         dates,
+        external_id: _,
     } = contact;
 
     let mut filtered_emails = Vec::new();
@@ -2616,6 +2676,31 @@ fn apply_vcf_update(
             .update_with_email_ops(now_utc, existing_id, update, email_ops)?;
     merge_tags(ctx, &updated.id, tags)?;
     apply_contact_dates(ctx, now_utc, updated.id, dates)?;
+    Ok(())
+}
+
+fn upsert_contact_source(
+    ctx: &Context<'_>,
+    now_utc: i64,
+    source_name: &str,
+    contact_id: ContactId,
+    external_id: Option<String>,
+) -> Result<()> {
+    let Some(external_id) = external_id else {
+        return Ok(());
+    };
+    let trimmed = external_id.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    ctx.store.contact_sources().upsert(
+        now_utc,
+        knotter_store::repo::ContactSourceNew {
+            contact_id,
+            source: source_name.to_string(),
+            external_id: trimmed.to_string(),
+        },
+    )?;
     Ok(())
 }
 
@@ -2701,6 +2786,7 @@ fn stage_merge_candidate(
         next_touchpoint_at,
         cadence_days,
         dates,
+        external_id: _,
     } = contact;
 
     let emails_repo = knotter_store::repo::EmailsRepo::new(ctx.store.connection());
@@ -3247,6 +3333,7 @@ mod tests {
             next_touchpoint_at: None,
             cadence_days: None,
             dates: Vec::new(),
+            external_id: None,
         };
 
         let outcome =
@@ -3365,6 +3452,7 @@ mod tests {
             next_touchpoint_at: None,
             cadence_days: None,
             dates: Vec::new(),
+            external_id: None,
         };
 
         let outcome =
@@ -3430,6 +3518,7 @@ mod tests {
             next_touchpoint_at: None,
             cadence_days: None,
             dates: Vec::new(),
+            external_id: None,
         };
 
         let outcome =
@@ -3491,6 +3580,7 @@ mod tests {
             next_touchpoint_at: None,
             cadence_days: None,
             dates: Vec::new(),
+            external_id: None,
         };
 
         let outcome =
@@ -3571,6 +3661,7 @@ mod tests {
             next_touchpoint_at: None,
             cadence_days: None,
             dates: Vec::new(),
+            external_id: None,
         };
 
         let outcome = apply_vcf_contact(

@@ -23,6 +23,7 @@ lettre = { version = "0.11", optional = true }
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2"
 
 [features]
 default = ["dav-sync", "email-sync", "telegram-sync"]
