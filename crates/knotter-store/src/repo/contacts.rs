@@ -675,7 +675,7 @@ fn merge_contacts_inner(
              SELECT 1 FROM contact_sources s2
              WHERE s2.contact_id = ?1
                AND s2.source = contact_sources.source
-               AND s2.external_id = contact_sources.external_id
+               AND lower(s2.external_id) = lower(contact_sources.external_id)
            );",
         params![primary_id.to_string(), secondary_id.to_string()],
     )?;

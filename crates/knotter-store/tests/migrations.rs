@@ -12,5 +12,5 @@ fn migrations_apply_once() {
             row.get(0)
         })
         .expect("schema version");
-    assert_eq!(version, 10);
+    assert_eq!(version, 11);
 }

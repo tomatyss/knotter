@@ -26,13 +26,13 @@ Optional flags:
 - `EMAIL` (all) → contact emails (first becomes primary)
 - `TEL` (first) → `phone`
 - `CATEGORIES` → tags (normalized; comma-separated)
-- `UID` / `X-ABUID` → stored as an external id for stable imports
+- `UID` / `X-ABUID` → stored as an external id for stable imports (UUID-shaped values are lowercased and `urn:uuid:` is stripped; non-UUID values preserve case but strip a leading `urn:uuid:` if present)
 - `X-KNOTTER-NEXT-TOUCHPOINT` → `next_touchpoint_at` (unix seconds UTC)
 - `X-KNOTTER-CADENCE-DAYS` → `cadence_days`
 
 ### Dedupe policy
 
-- If a vCard `UID`/`X-ABUID` matches a previously imported contact from the same source, update that contact.
+- If a vCard `UID`/`X-ABUID` matches a previously imported contact from the same source, update that contact. Matching is ASCII case-insensitive; if multiple contacts share the same UID ignoring case, knotter ignores UID matching, emits a warning, and falls back to other dedupe rules. If duplicates differ only by case but map to the same contact, knotter collapses them to a single mapping and warns.
 - If `EMAIL` is present and matches exactly one active contact (case-insensitive), update that contact.
 - If `EMAIL` is missing, create a new contact unless `--match-phone-name` finds a display-name + phone match.
 - When `--match-phone-name` is set, knotter normalizes phone numbers (digits-only, leading `+` preserved) and matches by display name + phone.
