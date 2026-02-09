@@ -738,6 +738,100 @@ fn cli_remind_uses_config_due_soon_days() {
 }
 
 #[test]
+fn cli_remind_notification_falls_back_to_random_contacts_when_no_reminders() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let config_path = temp.path().join("config.toml");
+
+    std::fs::write(
+        &config_path,
+        // Backwards-compat: old key name is still accepted.
+        "[notifications]\nenabled = true\nbackend = \"stdout\"\nrandom_contacts_if_no_dates_today = 10\n",
+    )
+    .expect("write config");
+    restrict_config_permissions(&config_path);
+
+    run_cmd_with_config(
+        &db_path,
+        &config_path,
+        &["add-contact", "--name", "Ada Lovelace"],
+    );
+    run_cmd_with_config(
+        &db_path,
+        &config_path,
+        &["add-contact", "--name", "Grace Hopper"],
+    );
+
+    let output = run_cmd_with_config(&db_path, &config_path, &["remind"]);
+    assert!(output.contains("random contacts:"), "output: {output}");
+    assert!(output.contains("Ada Lovelace"), "output: {output}");
+    assert!(output.contains("Grace Hopper"), "output: {output}");
+    assert!(!output.contains("no reminders"), "output: {output}");
+}
+
+#[test]
+fn cli_remind_notification_does_not_add_random_contacts_when_there_are_reminders() {
+    let temp = TempDir::new().expect("temp dir");
+    let db_path = temp.path().join("knotter.sqlite3");
+    let config_path = temp.path().join("config.toml");
+
+    std::fs::write(
+        &config_path,
+        "[notifications]\nenabled = true\nbackend = \"stdout\"\nrandom_contacts_if_no_reminders = 10\n",
+    )
+    .expect("write config");
+    restrict_config_permissions(&config_path);
+
+    run_cmd_with_config(
+        &db_path,
+        &config_path,
+        &["add-contact", "--name", "Ada Lovelace"],
+    );
+    let list = run_cmd_json_with_config(&db_path, &config_path, &["list"]);
+    let items = list.as_array().expect("array");
+    let id = items[0]["id"].as_str().expect("id").to_string();
+
+    let fixed_local = Local
+        .with_ymd_and_hms(2030, 1, 15, 12, 0, 0)
+        .single()
+        .expect("local time");
+    let date_str = fixed_local.format("%Y-%m-%d").to_string();
+    let now_env = fixed_local.with_timezone(&Utc).timestamp().to_string();
+
+    // Schedule a touchpoint for "today" relative to the fixed now, so reminders are non-empty.
+    run_cmd_with_config(
+        &db_path,
+        &config_path,
+        &["schedule", &id, "--at", &date_str],
+    );
+
+    let output = {
+        let config_dir = TempDir::new().expect("temp config dir");
+        let output = cargo_bin_cmd!("knotter")
+            .env("XDG_CONFIG_HOME", config_dir.path())
+            .env("KNOTTER_TEST_NOW_UTC", now_env.as_str())
+            .env("KNOTTER_ALLOW_TEST_NOW_UTC", "1")
+            .args([
+                "--db-path",
+                db_path.to_str().expect("db path"),
+                "--config",
+                config_path.to_str().expect("config path"),
+            ])
+            .args(["remind"])
+            .output()
+            .expect("run command");
+        assert!(output.status.success(), "command failed: {:?}", output);
+        String::from_utf8(output.stdout).expect("utf8")
+    };
+
+    assert!(
+        output.contains("today:") || output.contains("overdue:") || output.contains("soon:"),
+        "output: {output}"
+    );
+    assert!(!output.contains("random contacts:"), "output: {output}");
+}
+
+#[test]
 fn cli_remind_no_notify_overrides_config() {
     let temp = TempDir::new().expect("temp dir");
     let db_path = temp.path().join("knotter.sqlite3");

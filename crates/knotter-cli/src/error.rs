@@ -108,6 +108,7 @@ fn config_exit_code(err: &ConfigError) -> u8 {
         | ConfigError::DuplicateTelegramAccountName(_)
         | ConfigError::InvalidTelegramAccountField { .. }
         | ConfigError::InvalidNotificationsEmailField { .. }
+        | ConfigError::InvalidNotificationsRandomContacts { .. }
         | ConfigError::Read { .. }
         | ConfigError::Parse { .. } => EXIT_INVALID_INPUT,
     }

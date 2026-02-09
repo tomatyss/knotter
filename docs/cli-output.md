@@ -62,6 +62,11 @@ return a non-zero exit code.
 Reminder items include the `archived_at` field from `ContactListItemDto`, but it
 will always be null because archived contacts are excluded from reminders.
 
+Note: When `notifications.random_contacts_if_no_reminders > 0`, notifications may include
+an additional "random contacts" section when reminders are otherwise empty. This is not
+represented in `ReminderOutputDto`, so `knotter remind --json` will not include those
+random picks.
+
 ### `knotter show <id> --json`
 
 Output: JSON object matching `ContactDetailDto`:

@@ -50,6 +50,20 @@ password_env = "KNOTTER_SMTP_PASSWORD"
 tls = "start-tls"
 ```
 
+## Random contacts fallback in notifications
+
+If reminders are otherwise empty, you can include N random active contacts in the
+notification:
+
+```toml
+[notifications]
+random_contacts_if_no_reminders = 10
+```
+
+Max: 100.
+
+Legacy: `random_contacts_if_no_dates_today` is still accepted (renamed to better match behavior).
+
 ## Auto-reschedule on interactions
 
 ```toml

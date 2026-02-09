@@ -14,6 +14,7 @@ const CONFIG_FILENAME: &str = "config.toml";
 
 pub const DEFAULT_SOON_DAYS: i64 = 7;
 pub const DEFAULT_TELEGRAM_SNIPPET_LEN: usize = 160;
+pub const MAX_RANDOM_CONTACTS_IF_NO_REMINDERS: usize = 100;
 
 #[derive(Debug, Clone)]
 pub struct AppConfig {
@@ -30,6 +31,7 @@ pub struct NotificationsConfig {
     pub enabled: bool,
     pub backend: NotificationBackend,
     pub email: Option<NotificationsEmailConfig>,
+    pub random_contacts_if_no_reminders: usize,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -209,6 +211,7 @@ impl Default for AppConfig {
                 enabled: false,
                 backend: NotificationBackend::Desktop,
                 email: None,
+                random_contacts_if_no_reminders: 0,
             },
             interactions: InteractionsConfig::default(),
             loops: LoopConfig::default(),
@@ -259,6 +262,8 @@ pub enum ConfigError {
     InvalidTelegramAccountField { account_name: String, field: String },
     #[error("invalid notifications email field: {field}")]
     InvalidNotificationsEmailField { field: String },
+    #[error("invalid notifications.random_contacts_if_no_reminders value: {value} (max {max})")]
+    InvalidNotificationsRandomContacts { value: usize, max: usize },
     #[error("failed to read config file {path}: {source}")]
     Read {
         path: PathBuf,
@@ -292,6 +297,8 @@ struct NotificationsFile {
     enabled: Option<bool>,
     backend: Option<NotificationBackend>,
     email: Option<NotificationsEmailFile>,
+    #[serde(alias = "random_contacts_if_no_dates_today")]
+    random_contacts_if_no_reminders: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -471,6 +478,15 @@ fn merge_config(parsed: ConfigFile) -> Result<AppConfig> {
         }
         if let Some(email) = notifications.email {
             config.notifications.email = Some(merge_notifications_email(email)?);
+        }
+        if let Some(count) = notifications.random_contacts_if_no_reminders {
+            if count > MAX_RANDOM_CONTACTS_IF_NO_REMINDERS {
+                return Err(ConfigError::InvalidNotificationsRandomContacts {
+                    value: count,
+                    max: MAX_RANDOM_CONTACTS_IF_NO_REMINDERS,
+                });
+            }
+            config.notifications.random_contacts_if_no_reminders = count;
         }
     }
 
@@ -1039,6 +1055,7 @@ mod tests {
                 enabled: Some(true),
                 backend: Some(NotificationBackend::Desktop),
                 email: None,
+                random_contacts_if_no_reminders: None,
             }),
             interactions: None,
             loops: None,
@@ -1073,6 +1090,7 @@ mod tests {
                     tls: Some(EmailTls::StartTls),
                     timeout_seconds: Some(20),
                 }),
+                random_contacts_if_no_reminders: None,
             }),
             interactions: None,
             loops: None,
@@ -1103,6 +1121,7 @@ mod tests {
                 enabled: Some(true),
                 backend: Some(NotificationBackend::Email),
                 email: None,
+                random_contacts_if_no_reminders: None,
             }),
             interactions: None,
             loops: None,
@@ -1122,6 +1141,7 @@ mod tests {
                 enabled: Some(false),
                 backend: Some(NotificationBackend::Email),
                 email: None,
+                random_contacts_if_no_reminders: None,
             }),
             interactions: None,
             loops: None,
@@ -1153,6 +1173,7 @@ mod tests {
                     tls: None,
                     timeout_seconds: None,
                 }),
+                random_contacts_if_no_reminders: None,
             }),
             interactions: None,
             loops: None,
@@ -1182,6 +1203,7 @@ mod tests {
                     tls: None,
                     timeout_seconds: None,
                 }),
+                random_contacts_if_no_reminders: None,
             }),
             interactions: None,
             loops: None,
@@ -1190,6 +1212,16 @@ mod tests {
 
         let err = merge_config(parsed).unwrap_err();
         assert!(err.to_string().contains("notifications.email"));
+    }
+
+    #[test]
+    fn merge_config_parses_random_contacts_legacy_key_alias() {
+        let parsed: ConfigFile =
+            toml::from_str("[notifications]\nrandom_contacts_if_no_dates_today = 10\n")
+                .expect("parse toml");
+
+        let merged = merge_config(parsed).expect("merge");
+        assert_eq!(merged.notifications.random_contacts_if_no_reminders, 10);
     }
 
     #[test]

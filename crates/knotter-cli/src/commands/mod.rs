@@ -12,6 +12,7 @@ pub mod interactions;
 pub mod loops;
 pub mod merge;
 pub mod remind;
+mod remind_fmt;
 pub mod schedule;
 pub mod sync;
 pub mod tags;

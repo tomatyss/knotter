@@ -1,6 +1,7 @@
 use crate::error::{Result, StoreError};
 use crate::query::{due_bounds, ContactQuery};
 use crate::repo::merge_candidates::MergeCandidateStatus;
+use crate::temp_table::TempContactIdTable;
 use chrono::FixedOffset;
 use knotter_core::domain::{normalize_email, Contact, ContactId, TagName};
 use knotter_core::rules::validate_soon_days;
@@ -336,6 +337,48 @@ impl<'a> ContactsRepo<'a> {
             bounds.start_of_tomorrow,
             bounds.soon_end
         ])?;
+        let mut contacts = Vec::new();
+        while let Some(row) = rows.next()? {
+            contacts.push(contact_from_row(row)?);
+        }
+        Ok(contacts)
+    }
+
+    pub fn list_random_active(
+        &self,
+        limit: usize,
+        exclude_ids: &[ContactId],
+    ) -> Result<Vec<Contact>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        // Use a temp table to avoid "too many SQL variables" when exclude_ids is large.
+        let exclude_table = (!exclude_ids.is_empty())
+            .then(|| TempContactIdTable::create(self.conn, exclude_ids))
+            .transpose()?;
+
+        let sql = if let Some(table) = exclude_table.as_ref() {
+            format!(
+                "SELECT id, display_name, email, phone, handle, timezone, next_touchpoint_at, cadence_days, created_at, updated_at, archived_at
+                 FROM contacts
+                 WHERE archived_at IS NULL
+                   AND NOT EXISTS (SELECT 1 FROM {} WHERE id = contacts.id)
+                 ORDER BY RANDOM()
+                 LIMIT ?1;",
+                table.name()
+            )
+        } else {
+            "SELECT id, display_name, email, phone, handle, timezone, next_touchpoint_at, cadence_days, created_at, updated_at, archived_at
+             FROM contacts
+             WHERE archived_at IS NULL
+             ORDER BY RANDOM()
+             LIMIT ?1;"
+                .to_string()
+        };
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query(params_from_iter([limit as i64]))?;
         let mut contacts = Vec::new();
         while let Some(row) = rows.next()? {
             contacts.push(contact_from_row(row)?);
