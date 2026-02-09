@@ -1,5 +1,19 @@
 # Release Notes
 
+## v0.5.0 (2026-02-09)
+
+### Reminders
+- `knotter remind` now falls back to a random contact when the reminders list is empty.
+
+### vCard Import/Merge
+- Improved vCard contact-source matching (harden/normalize external ID matching).
+- Track vCard UID as a contact source mapping to improve dedupe/round-trips.
+- Fix safe auto-merge classification for a vCard phone-name edge case.
+
+### Maintenance
+- Dependency updates: clap, notify-rust, anyhow, bytes, time.
+- Release housekeeping: bump crate versions to 0.5.0.
+
 ## v0.4.6 (2026-02-03)
 
 - Release housekeeping: bump crate versions to 0.4.6.
