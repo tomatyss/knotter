@@ -1,6 +1,7 @@
 use knotter_core::domain::{ContactId, TagName};
 use knotter_store::repo::{ContactNew, ContactUpdate, ContactsRepo, EmailOps};
 use knotter_store::Store;
+use tempfile::TempDir;
 
 #[test]
 fn contact_crud_roundtrip() {
@@ -323,6 +324,41 @@ fn update_with_email_ops_updates_timestamp() {
         .expect("update");
 
     assert_eq!(updated.updated_at, now + 10);
+}
+
+#[test]
+fn list_random_active_handles_large_exclude_lists() {
+    let dir = TempDir::new().expect("temp dir");
+    let db_path = dir.path().join("knotter.sqlite3");
+    let store = Store::open(&db_path).expect("open store");
+    store.migrate().expect("migrate");
+    let now = 1_700_000_000;
+
+    store
+        .contacts()
+        .create(
+            now,
+            knotter_store::repo::ContactNew {
+                display_name: "Ada".to_string(),
+                email: None,
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create contact");
+
+    // This would trip SQLite's variable limit if implemented as `id NOT IN (?1, ?2, ... ?N)`.
+    let exclude_ids = (0..1500).map(|_| ContactId::new()).collect::<Vec<_>>();
+
+    let picks = store
+        .contacts()
+        .list_random_active(1, &exclude_ids)
+        .expect("list random active");
+    assert!(picks.len() <= 1);
 }
 
 #[test]

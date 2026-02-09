@@ -186,6 +186,7 @@ default_cadence_days = 30
 [notifications]
 enabled = false
 backend = "stdout" # stdout | desktop | email
+random_contacts_if_no_reminders = 0 # when >0 and reminders are otherwise empty, include random contacts in notifications (max 100)
 
 [notifications.email]
 from = "Knotter <knotter@example.com>"

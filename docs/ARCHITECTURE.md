@@ -760,6 +760,7 @@ Config keys (MVP):
 * `default_cadence_days = 30` (optional)
 * `notifications.enabled = true/false`
 * `notifications.backend = "stdout" | "desktop" | "email"` (email requires `email-notify`)
+* `notifications.random_contacts_if_no_reminders = 10` (optional; when >0 and reminders are otherwise empty, include random contacts in notifications; max 100)
 * `notifications.email.from = "Knotter <knotter@example.com>"`
 * `notifications.email.to = ["you@example.com"]`
 * `notifications.email.smtp_host = "smtp.example.com"`
@@ -787,6 +788,7 @@ default_cadence_days = 30
 [notifications]
 enabled = false
 backend = "stdout"
+random_contacts_if_no_reminders = 0
 
 [notifications.email]
 from = "Knotter <knotter@example.com>"
