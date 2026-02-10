@@ -240,6 +240,103 @@ fn contact_sources_case_insensitive_matches() {
 }
 
 #[test]
+fn contact_sources_list_contact_ids_for_source_returns_distinct_sorted_ids() {
+    let store = Store::open_in_memory().expect("open store");
+    store.migrate().expect("migrate");
+    let now = 1_700_000_000;
+
+    let a = store
+        .contacts()
+        .create(
+            now,
+            ContactNew {
+                display_name: "Ada".to_string(),
+                email: None,
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create contact a");
+    let b = store
+        .contacts()
+        .create(
+            now + 10,
+            ContactNew {
+                display_name: "Bob".to_string(),
+                email: None,
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create contact b");
+
+    // Two mappings for the same contact should still only yield one id due to DISTINCT.
+    store
+        .contact_sources()
+        .upsert(
+            now,
+            ContactSourceNew {
+                contact_id: a.id,
+                source: "macos-contacts".to_string(),
+                external_id: "A".to_string(),
+            },
+        )
+        .expect("upsert mapping");
+    store
+        .contact_sources()
+        .upsert(
+            now + 1,
+            ContactSourceNew {
+                contact_id: a.id,
+                source: "macos-contacts".to_string(),
+                external_id: "B".to_string(),
+            },
+        )
+        .expect("upsert mapping");
+    store
+        .contact_sources()
+        .upsert(
+            now + 2,
+            ContactSourceNew {
+                contact_id: b.id,
+                source: "macos-contacts".to_string(),
+                external_id: "C".to_string(),
+            },
+        )
+        .expect("upsert mapping");
+
+    // Another source should not affect the listing for macos-contacts.
+    store
+        .contact_sources()
+        .upsert(
+            now + 3,
+            ContactSourceNew {
+                contact_id: b.id,
+                source: "carddav:test".to_string(),
+                external_id: "uid-1".to_string(),
+            },
+        )
+        .expect("upsert mapping");
+
+    let mut expected = vec![a.id, b.id];
+    expected.sort_by_key(|id| id.to_string());
+
+    let ids = store
+        .contact_sources()
+        .list_contact_ids_for_source("macos-contacts")
+        .expect("list ids");
+    assert_eq!(ids, expected);
+}
+
+#[test]
 fn contact_sources_case_insensitive_returns_multiple_matches() {
     let store = Store::open_in_memory().expect("open store");
     store.migrate().expect("migrate");

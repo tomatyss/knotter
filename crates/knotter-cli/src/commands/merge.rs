@@ -10,6 +10,9 @@ use knotter_store::repo::{
 use serde::Serialize;
 use std::str::FromStr;
 
+mod scan_same_name;
+pub use scan_same_name::{scan_same_name, MergeScanSameNameArgs};
+
 #[derive(Debug, Subcommand)]
 pub enum MergeCommand {
     List(MergeListArgs),
@@ -18,6 +21,7 @@ pub enum MergeCommand {
     ApplyAll(MergeApplyAllArgs),
     Dismiss(MergeDismissArgs),
     Contacts(MergeContactsArgs),
+    ScanSameName(MergeScanSameNameArgs),
 }
 
 #[derive(Debug, Args)]
@@ -117,6 +121,7 @@ pub enum MergeReasonArg {
     EmailNameAmbiguous,
     VcfAmbiguousEmail,
     VcfAmbiguousPhoneName,
+    NameDuplicate,
     TelegramUsernameAmbiguous,
     TelegramHandleAmbiguous,
     TelegramNameAmbiguous,
@@ -696,6 +701,7 @@ impl MergeReasonArg {
             MergeReasonArg::EmailNameAmbiguous => MergeCandidateReason::EmailNameAmbiguous,
             MergeReasonArg::VcfAmbiguousEmail => MergeCandidateReason::VcfAmbiguousEmail,
             MergeReasonArg::VcfAmbiguousPhoneName => MergeCandidateReason::VcfAmbiguousPhoneName,
+            MergeReasonArg::NameDuplicate => MergeCandidateReason::NameDuplicate,
             MergeReasonArg::TelegramUsernameAmbiguous => {
                 MergeCandidateReason::TelegramUsernameAmbiguous
             }

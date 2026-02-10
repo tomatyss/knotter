@@ -222,6 +222,16 @@ Manual merge workflow for contact following and deduplication.
   - `results` array with `id`, `status`, `reason`, `source`, `primary_id`, `secondary_id`, `merged_contact_id`, `error`
 - `knotter merge dismiss <id> --json` returns the merge candidate object after dismissal.
 - `knotter merge contacts <primary> <secondary> --json` returns the merged `Contact` object.
+- `knotter merge scan-same-name --json` scans the local DB for duplicate display names and creates
+  *manual* merge candidates (reason `name-duplicate`, source `scan:same-name`) for review:
+  - `considered_contacts`, `skipped_empty_name_contacts`, `duplicate_groups`, `groups_scanned`
+  - `candidates_created`, `pairs_skipped_existing_open`
+  - `dry_run` (boolean)
+  - `results` array with `display_name`, `normalized_name`, `preferred_contact_id`, and `pairs`
+    containing `primary_id`, `secondary_id`, `status`, `merge_candidate_id`
+  - Preferred contact heuristic:
+    active contacts are preferred; then the record with more identifiers (email/phone/handle);
+    then the most recently updated; then the oldest created (stable canonical record).
 
 Defaults: merges prefer the chosen primary contact for most fields, pick the earliest
 `next_touchpoint_at`, and keep the contact active if either side is active.
