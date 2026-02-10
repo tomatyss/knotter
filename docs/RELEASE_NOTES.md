@@ -1,5 +1,17 @@
 # Release Notes
 
+## v0.6.0 (2026-02-10)
+
+### Merge
+- Add `knotter merge scan-same-name` to scan for duplicate display names and create manual merge candidates for review.
+- Add typed merge candidate reason `name-duplicate`.
+
+### Store
+- Improve `contact_sources` external ID matching (case-insensitive normalization) and add a helper to list contact IDs by source.
+
+### Maintenance
+- Release housekeeping: bump crate versions to 0.6.0.
+
 ## v0.5.0 (2026-02-09)
 
 ### Reminders
