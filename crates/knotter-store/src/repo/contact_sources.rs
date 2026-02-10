@@ -184,4 +184,25 @@ impl<'a> ContactSourcesRepo<'a> {
         // Keep mapping.external_id (and case) in place; do not rewrite the primary key.
         Ok(())
     }
+
+    pub fn list_contact_ids_for_source(&self, source: &str) -> Result<Vec<ContactId>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT contact_id
+             FROM contact_sources
+             WHERE source = ?1
+             ORDER BY contact_id ASC;",
+        )?;
+        let rows = stmt.query_map(params![source], |row| {
+            let contact_id: String = row.get(0)?;
+            Ok(contact_id)
+        })?;
+
+        let mut ids = Vec::new();
+        for row in rows {
+            let value = row?;
+            let id = ContactId::from_str(&value).map_err(|_| StoreError::InvalidId(value))?;
+            ids.push(id);
+        }
+        Ok(ids)
+    }
 }

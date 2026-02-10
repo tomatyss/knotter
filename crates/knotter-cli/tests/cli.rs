@@ -176,6 +176,81 @@ fn cli_merge_contacts_merges_records() {
 }
 
 #[test]
+fn cli_merge_scan_same_name_creates_candidates() {
+    let dir = TempDir::new().expect("temp dir");
+    let db_path = dir.path().join("knotter.sqlite3");
+    let store = Store::open(&db_path).expect("open store");
+    store.migrate().expect("migrate");
+
+    // Two active contacts with the same display name.
+    let now = Utc::now().timestamp();
+    let a = store
+        .contacts()
+        .create(
+            now,
+            knotter_store::repo::ContactNew {
+                display_name: "Same Name".to_string(),
+                email: None,
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create a");
+    let b = store
+        .contacts()
+        .create(
+            now,
+            knotter_store::repo::ContactNew {
+                display_name: "Same Name".to_string(),
+                email: None,
+                phone: None,
+                handle: None,
+                timezone: None,
+                next_touchpoint_at: None,
+                cadence_days: None,
+                archived_at: None,
+            },
+        )
+        .expect("create b");
+
+    // Dry-run should not create candidates.
+    let report = run_cmd_json(&db_path, &["merge", "scan-same-name", "--dry-run"]);
+    assert!(report["dry_run"].as_bool().unwrap());
+    let list = run_cmd_json(&db_path, &["merge", "list"]);
+    assert!(list.as_array().unwrap().is_empty());
+
+    // Apply should create one open candidate for the pair.
+    let report = run_cmd_json(
+        &db_path,
+        &["merge", "scan-same-name", "--yes", "--limit", "10"],
+    );
+    assert!(!report["dry_run"].as_bool().unwrap());
+    assert_eq!(report["candidates_created"].as_u64().unwrap(), 1);
+
+    let list = run_cmd_json(&db_path, &["merge", "list"]);
+    let arr = list.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    let item = &arr[0];
+    assert_eq!(item["status"], "open");
+    assert_eq!(item["reason"], "name-duplicate");
+    assert_eq!(item["source"], "scan:same-name");
+
+    // Make sure the candidate references the created contacts.
+    let a_id = a.id.to_string();
+    let b_id = b.id.to_string();
+    let ca = item["contact_a"]["id"].as_str().unwrap();
+    let cb = item["contact_b"]["id"].as_str().unwrap();
+    assert!(
+        (ca == a_id && cb == b_id) || (ca == b_id && cb == a_id),
+        "unexpected pair: {ca} <-> {cb}"
+    );
+}
+
+#[test]
 fn cli_merge_list_outputs_candidates() {
     let dir = TempDir::new().expect("temp dir");
     let db_path = dir.path().join("knotter.sqlite3");

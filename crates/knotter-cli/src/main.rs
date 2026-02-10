@@ -158,6 +158,7 @@ fn run(cli: Cli) -> Result<()> {
                     merge::MergeCommand::ApplyAll(args) => merge::apply_all_merges(&ctx, args),
                     merge::MergeCommand::Dismiss(args) => merge::dismiss_merge(&ctx, args),
                     merge::MergeCommand::Contacts(args) => merge::merge_contacts(&ctx, args),
+                    merge::MergeCommand::ScanSameName(args) => merge::scan_same_name(&ctx, args),
                 },
                 Command::AddNote(args) => interactions::add_note(&ctx, args),
                 Command::Touch(args) => interactions::touch_contact(&ctx, args),
